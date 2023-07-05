@@ -79,6 +79,8 @@ struct User {
     password_hash: String,
     name: String,
     email: String,
+    avatar_url: Option<String>,
+    discord_id: Option<String>,
 }
 
 impl AuthUser<i64> for User {
@@ -179,18 +181,20 @@ async fn main() {
 
     let bucket_routes = Router::new()
         .route("/", get(get_buckets))
-        .route("/:bucket_name/*path", get(get_route))
-        .route("/:bucket_name/*path", post(save_request))
-        .route("/:bucket_name/*path", delete(delete_request))
+        .route(
+            "/*path",
+            get(get_route).post(save_request).delete(delete_request),
+        )
         .route_layer(RequireAuthorizationLayer::<i64, User>::login());
     let auth_routes = Router::new()
+        .route("/logout", get(logout_handler))
+        .route_layer(RequireAuthorizationLayer::<i64, User>::login())
         .route("/login", get(login_handler))
         .route("/discord/callback", get(oauth_callback_handler))
         .layer(Extension(oauth_client))
         .layer(Extension(pool.clone()));
     let user_routes = Router::new()
         .route("/me", get(user_info_handler))
-        .route("/logout", get(logout_handler))
         .route_layer(RequireAuthorizationLayer::<i64, User>::login());
     let api_routes = Router::new()
         .nest("/buckets", bucket_routes)
@@ -230,10 +234,8 @@ async fn get_buckets() -> impl IntoResponse {
     (StatusCode::OK, Json(buckets))
 }
 
-async fn delete_request(
-    Path(params): Path<(String, String)>,
-) -> Result<StatusCode, (StatusCode, String)> {
-    let path = format!("{}/{}/{}", &UPLOADS_DIRECTORY, &params.0, &params.1);
+async fn delete_request(Path(path): Path<String>) -> Result<StatusCode, (StatusCode, String)> {
+    let path = format!("{}/{}", &UPLOADS_DIRECTORY, path);
     if let Ok(_) = tokio::fs::read_dir(&path).await {
         match tokio::fs::remove_dir_all(&path).await {
             Ok(_) => return Ok(StatusCode::NO_CONTENT),
@@ -247,10 +249,10 @@ async fn delete_request(
 }
 
 async fn save_request(
-    Path(params): Path<(String, String)>,
+    Path(path): Path<String>,
     body: BodyStream,
 ) -> Result<(), (StatusCode, String)> {
-    let path = format!("{}/{}/{}", &UPLOADS_DIRECTORY, &params.0, &params.1);
+    let path = format!("{}/{}", &UPLOADS_DIRECTORY, path);
     if !is_file(&path) {
         match tokio::fs::create_dir(path).await {
             Ok(_) => return Ok(()),
@@ -290,8 +292,8 @@ where
     .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))
 }
 
-async fn get_route(Path(params): Path<(String, String)>, uri: Uri) -> impl IntoResponse {
-    let path = format!("{}/{}{}", &UPLOADS_DIRECTORY, params.0, params.1);
+async fn get_route(Path(path): Path<String>, uri: Uri) -> impl IntoResponse {
+    let path = format!("{}/{}", &UPLOADS_DIRECTORY, path);
     let Ok(meta) = metadata(&path).await else {
         return Err((StatusCode::BAD_REQUEST, "Invalid path".to_string()));
     };
@@ -454,22 +456,24 @@ async fn oauth_callback_handler(
     let user = match user {
         Some(user) => user,
         None => {
-            // let Some(_invite) = sqlx::query_as!(
-            //     UserInvite,
-            //     "select * from user_invites where email = $1",
-            //     email
-            // )
-            // .fetch_optional(&mut conn)
-            // .await
-            // .unwrap() else {
-            //     return Redirect::to("/no-invite");
-            // };
+            if &email != &env::var("OWNER_EMAIL").expect("Missing OWNER_EMAIL") {
+                let Some(_invite) = sqlx::query_as!( UserInvite, "select * from user_invites where email = $1",
+                    email
+                )
+                .fetch_optional(&mut conn)
+                .await
+                .unwrap() else {
+                    return Redirect::to("/no-invite");
+                };
+            }
 
             sqlx::query!(
-                "insert into users (password_hash, name, email) values ($1, $2, $3);",
+                "insert into users (password_hash, name, email, avatar_url, discord_id) values ($1, $2, $3, $4, $5);",
                 user_data.username,
                 user_data.username,
-                email
+                email,
+                user_data.avatar,
+                user_data.id,
             )
             .execute(&mut conn)
             .await
@@ -494,10 +498,16 @@ async fn oauth_callback_handler(
 struct UserInfo {
     name: String,
     email: String,
+    discord_avatar: String,
 }
 async fn user_info_handler(Extension(user): Extension<User>) -> impl IntoResponse {
     Json(UserInfo {
         name: user.name,
         email: user.email,
+        discord_avatar: format!(
+            "https://cdn.discordapp.com/avatars/{}/{}",
+            user.discord_id.unwrap_or_default(),
+            user.avatar_url.unwrap_or_default()
+        ),
     })
 }
