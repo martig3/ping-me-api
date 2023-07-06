@@ -3,7 +3,6 @@ use axum::body::Body;
 use axum::extract::Query;
 use axum::http::{header, HeaderValue, Method, Request, Uri};
 use axum::response::Redirect;
-use axum::routing::delete;
 use axum::Extension;
 use axum::{
     body::Bytes,
@@ -13,8 +12,6 @@ use axum::{
     routing::{get, post},
     BoxError, Json, Router,
 };
-use axum_extra::extract::cookie::Cookie;
-use axum_extra::extract::CookieJar;
 use axum_login::axum_sessions::async_session::MemoryStore;
 use axum_login::axum_sessions::extractors::ReadableSession;
 use axum_login::axum_sessions::extractors::WritableSession;
@@ -181,6 +178,7 @@ async fn main() {
 
     let bucket_routes = Router::new()
         .route("/", get(get_buckets))
+        .route("/create/:name", post(create_bucket))
         .route(
             "/*path",
             get(get_route).post(save_request).delete(delete_request),
@@ -268,10 +266,6 @@ where
     S: Stream<Item = Result<Bytes, E>>,
     E: Into<BoxError>,
 {
-    // if !path_is_valid(path) {
-    //     return Err((StatusCode::BAD_REQUEST, "Invalid path".to_owned()));
-    // }
-
     async {
         // Convert the stream into an `AsyncRead`.
         let body_with_io_error = stream.map_err(|err| Error::new(io::ErrorKind::Other, err));
@@ -304,7 +298,13 @@ async fn get_route(Path(path): Path<String>, uri: Uri) -> impl IntoResponse {
         Ok(serve_file(&path, &uri).await.into_response())
     }
 }
-
+async fn create_bucket(Path(name): Path<String>) -> Result<StatusCode, (StatusCode, String)> {
+    let path = format!("{}/{}", &UPLOADS_DIRECTORY, name);
+    match tokio::fs::create_dir(path).await {
+        Ok(_) => return Ok(StatusCode::NO_CONTENT),
+        Err(error) => return Err((StatusCode::INTERNAL_SERVER_ERROR, error.to_string())),
+    }
+}
 async fn get_dir(path: &String) -> impl IntoResponse {
     let mut dir = read_dir(path).await.unwrap();
     let mut file_infos: Vec<FileInfo> = Vec::new();
@@ -381,7 +381,7 @@ async fn login_handler(
 }
 
 async fn logout_handler(mut auth: AuthContext) -> impl IntoResponse {
-    dbg!("Logging out user: {}", &auth.current_user);
+    log::debug!("Logging out user: {:?}", &auth.current_user);
     auth.logout().await
 }
 #[derive(Debug, Deserialize)]
@@ -499,8 +499,10 @@ struct UserInfo {
     name: String,
     email: String,
     discord_avatar: String,
+    is_owner: bool,
 }
 async fn user_info_handler(Extension(user): Extension<User>) -> impl IntoResponse {
+    let is_owner = &user.email == &env::var("OWNER_EMAIL").expect("missing OWNER_EMAIL");
     Json(UserInfo {
         name: user.name,
         email: user.email,
@@ -509,5 +511,6 @@ async fn user_info_handler(Extension(user): Extension<User>) -> impl IntoRespons
             user.discord_id.unwrap_or_default(),
             user.avatar_url.unwrap_or_default()
         ),
+        is_owner,
     })
 }
