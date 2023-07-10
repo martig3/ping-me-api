@@ -1,6 +1,7 @@
 use axum::body::boxed;
 use axum::body::Body;
 use axum::extract::Query;
+use axum::extract::State;
 use axum::http::{header, HeaderValue, Method, Request, Uri};
 use axum::response::Redirect;
 use axum::Extension;
@@ -33,6 +34,8 @@ use chrono::{DateTime, Utc};
 use rand::Rng;
 use serde::Deserialize;
 use serde::Serialize;
+use sqlx::Pool;
+use sqlx::Sqlite;
 use sqlx::SqlitePool;
 use std::env;
 use std::io::Error;
@@ -45,7 +48,6 @@ use tokio::fs::{metadata, read_dir};
 use tokio::io::BufWriter;
 use tokio_util::io::StreamReader;
 use tower::{ServiceBuilder, ServiceExt};
-use tower_http::cors::Any;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeFile;
 use tower_http::{
@@ -70,16 +72,28 @@ pub struct AppState {
     pool: SqlitePool,
 }
 
+#[derive(Clone, PartialEq, PartialOrd, sqlx::Type, Debug)]
+pub enum Role {
+    User,
+    Admin,
+}
+
+impl Default for Role {
+    fn default() -> Self {
+        Role::User
+    }
+}
+
 #[derive(Debug, Default, Clone, sqlx::FromRow)]
 struct User {
     id: i64,
     password_hash: String,
     name: String,
     email: String,
+    role: Role,
     avatar_url: Option<String>,
     discord_id: Option<String>,
 }
-
 impl AuthUser<i64> for User {
     fn get_id(&self) -> i64 {
         self.id
@@ -90,16 +104,29 @@ impl AuthUser<i64> for User {
     }
 }
 
-#[derive(Debug, Default, Clone, sqlx::FromRow)]
-struct UserInvite {
-    id: i64,
-    user_id: i64,
-    invite_key: String,
-    email: String,
-    accepted: bool,
+impl AuthUser<i64, Role> for User {
+    fn get_id(&self) -> i64 {
+        self.id
+    }
+
+    fn get_password_hash(&self) -> SecretVec<u8> {
+        SecretVec::new(self.password_hash.clone().into())
+    }
+
+    fn get_role(&self) -> Option<Role> {
+        Some(self.role.clone())
+    }
 }
 
+#[derive(Debug, Default, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+struct UserInvite {
+    id: i64,
+    user_id: Option<i64>,
+    email: String,
+}
 type AuthContext = axum_login::extractors::AuthContext<i64, User, SqliteStore<User>>;
+type RequireAuth = RequireAuthorizationLayer<i64, User, Role>;
 const UPLOADS_DIRECTORY: &str = "uploads";
 
 #[tokio::main]
@@ -176,14 +203,20 @@ async fn main() {
             HeaderValue::from_static("application/octet-stream"),
         );
 
+    let admin_routes = Router::new()
+        .route("/bucket/create/:name", post(create_bucket))
+        .route(
+            "/invites",
+            get(get_invites).put(put_invite).delete(delete_invite),
+        )
+        .route_layer(RequireAuth::login_with_role(Role::Admin..));
     let bucket_routes = Router::new()
         .route("/", get(get_buckets))
-        .route("/create/:name", post(create_bucket))
         .route(
             "/*path",
             get(get_route).post(save_request).delete(delete_request),
         )
-        .route_layer(RequireAuthorizationLayer::<i64, User>::login());
+        .route_layer(RequireAuthorizationLayer::<i64, User, Role>::login());
     let auth_routes = Router::new()
         .route("/logout", get(logout_handler))
         .route_layer(RequireAuthorizationLayer::<i64, User>::login())
@@ -197,7 +230,8 @@ async fn main() {
     let api_routes = Router::new()
         .nest("/buckets", bucket_routes)
         .nest("/auth", auth_routes)
-        .nest("/user", user_routes);
+        .nest("/user", user_routes)
+        .nest("/admin", admin_routes);
 
     let shared_state = AppState { pool };
 
@@ -208,7 +242,10 @@ async fn main() {
         .layer(session_layer)
         .with_state(shared_state);
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let host = matches!(env::var("ENV").as_deref(), Ok("prd"))
+        .then_some([0, 0, 0, 0])
+        .unwrap_or([127, 0, 0, 1]);
+    let addr = SocketAddr::from((host, 3000));
     tracing::debug!("listening on {}", addr);
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
@@ -346,7 +383,10 @@ fn is_file(path: &str) -> bool {
 fn build_discord_oauth_client() -> BasicClient {
     let client_id = env::var("CLIENT_ID").expect("Missing CLIENT_ID!");
     let client_secret = env::var("CLIENT_SECRET").expect("Missing CLIENT_SECRET!");
-    let redirect_url = "http://localhost:3000/api/auth/discord/callback".to_string();
+    let redirect_url = format!(
+        "{}/api/auth/discord/callback",
+        env::var("BASE_URL").unwrap()
+    );
 
     let auth_url =
         AuthUrl::new("https://discord.com/api/oauth2/authorize?response_type=code".to_string())
@@ -397,6 +437,7 @@ struct DiscordUser {
     email: Option<String>,
     discriminator: String,
 }
+
 async fn oauth_callback_handler(
     mut auth: AuthContext,
     Query(query): Query<AuthRequest>,
@@ -449,39 +490,46 @@ async fn oauth_callback_handler(
     // Fetch the user and log them in
     let mut conn = pool.acquire().await.unwrap();
     log::debug!("Getting user");
-    let user: Option<User> = sqlx::query_as!(User, "select * from users where email = $1", email)
+    let user: Option<User> = sqlx::query_as!(User, r#"select u.id, u.name, u.email, u.password_hash, u.role as "role: Role", u.avatar_url, u.discord_id from users as u where email = $1"#, email)
         .fetch_optional(&mut conn)
         .await
         .unwrap();
     let user = match user {
         Some(user) => user,
         None => {
-            if &email != &env::var("OWNER_EMAIL").expect("Missing OWNER_EMAIL") {
+            let is_owner = &email == &env::var("OWNER_EMAIL").expect("Missing OWNER_EMAIL");
+            if !is_owner {
                 let Some(_invite) = sqlx::query_as!( UserInvite, "select * from user_invites where email = $1",
                     email
                 )
                 .fetch_optional(&mut conn)
                 .await
                 .unwrap() else {
-                    return Redirect::to("/no-invite");
+                    return Redirect::to(format!("{}/no-invite", env::var("CLIENT_BASE_URL").unwrap()).as_str());
                 };
             }
 
+            let role = if is_owner { Role::Admin } else { Role::User };
             sqlx::query!(
-                "insert into users (password_hash, name, email, avatar_url, discord_id) values ($1, $2, $3, $4, $5);",
+                "insert into users (password_hash, name, email, role, avatar_url, discord_id) values ($1, $2, $3, $4, $5, $6);",
                 user_data.username,
                 user_data.username,
                 email,
+                role,
                 user_data.avatar,
                 user_data.id,
             )
             .execute(&mut conn)
             .await
             .unwrap();
-            let user: User = sqlx::query_as!(User, "select * from users where email = $1", email)
-                .fetch_one(&mut conn)
-                .await
-                .unwrap();
+            let user: User = sqlx::query_as!(
+                User,
+                r#"select u.id, u.name, u.email, u.password_hash, u.role as "role: Role", u.avatar_url, u.discord_id from users as u where email = $1"#,
+                email
+            )
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
             user
         }
     };
@@ -491,10 +539,11 @@ async fn oauth_callback_handler(
 
     log::debug!("Logged in the user: {user:?}");
 
-    Redirect::to("http://localhost:5173/")
+    Redirect::to(format!("{}/", env::var("CLIENT_BASE_URL").unwrap()).as_str())
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct UserInfo {
     name: String,
     email: String,
@@ -513,4 +562,56 @@ async fn user_info_handler(Extension(user): Extension<User>) -> impl IntoRespons
         ),
         is_owner,
     })
+}
+async fn get_invites(state: State<AppState>) -> impl IntoResponse {
+    let pool = &state.pool;
+    let invites = sqlx::query_as!(UserInvite, "select * from user_invites order by email ")
+        .fetch_all(pool)
+        .await
+        .unwrap();
+    Json(invites)
+}
+async fn put_invite(state: State<AppState>, Json(invite): Json<UserInvite>) -> impl IntoResponse {
+    let pool = &state.pool;
+    let existing = get_user_invite(pool, &invite.email).await;
+    if existing.is_some() {
+        return Err((StatusCode::BAD_REQUEST, "Email already exists".to_string()));
+    }
+    sqlx::query!("insert into user_invites (email) values ($1)", invite.email)
+        .execute(pool)
+        .await
+        .unwrap();
+    let invite = get_user_invite(pool, &invite.email).await;
+    Ok(Json(invite.unwrap()))
+}
+
+async fn delete_invite(
+    state: State<AppState>,
+    Json(invite): Json<UserInvite>,
+) -> impl IntoResponse {
+    let pool = &state.pool;
+    let existing = get_user_invite(pool, &invite.email).await;
+    if existing.is_none() {
+        return Err((StatusCode::BAD_REQUEST, "Email doesn't exist".to_string()));
+    }
+    sqlx::query!("delete from user_invites where email = $1", invite.email)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query!("delete from users where email = $1", invite.email)
+        .execute(pool)
+        .await
+        .unwrap();
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn get_user_invite(pool: &Pool<Sqlite>, email: &String) -> Option<UserInvite> {
+    sqlx::query_as!(
+        UserInvite,
+        "select * from user_invites where email = $1",
+        email
+    )
+    .fetch_optional(pool)
+    .await
+    .unwrap()
 }
