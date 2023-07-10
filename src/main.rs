@@ -2,23 +2,13 @@ mod routes;
 
 use crate::routes::routes;
 use axum::body::boxed;
-use axum::body::Body;
-use axum::extract::Query;
-use axum::extract::State;
-use axum::http::{header, HeaderValue, Method, Request, Uri};
-use axum::response::Redirect;
+
+use axum::http::{header, HeaderValue, Method};
+
 use axum::Extension;
-use axum::{
-    body::Bytes,
-    extract::{BodyStream, Path},
-    http::StatusCode,
-    response::IntoResponse,
-    routing::{get, post},
-    BoxError, Json, Router,
-};
+use axum::{body::Bytes, Router};
 use axum_login::axum_sessions::async_session::MemoryStore;
-use axum_login::axum_sessions::extractors::ReadableSession;
-use axum_login::axum_sessions::extractors::WritableSession;
+
 use axum_login::axum_sessions::SameSite;
 use axum_login::axum_sessions::SessionLayer;
 use axum_login::secrecy::SecretVec;
@@ -26,38 +16,29 @@ use axum_login::AuthLayer;
 use axum_login::AuthUser;
 use axum_login::RequireAuthorizationLayer;
 use axum_login::SqliteStore;
-use futures::{Stream, TryStreamExt};
-use oauth2::TokenResponse;
-use oauth2::{
-    basic::BasicClient, reqwest::async_http_client, AuthUrl, AuthorizationCode, ClientId,
-    ClientSecret, CsrfToken, RedirectUrl, Scope, TokenUrl,
-};
 
-use chrono::{DateTime, Utc};
+use oauth2::{basic::BasicClient, AuthUrl, ClientId, ClientSecret, RedirectUrl, TokenUrl};
+
 use rand::Rng;
 use serde::Deserialize;
 use serde::Serialize;
-use sqlx::Pool;
-use sqlx::Sqlite;
+
 use sqlx::SqlitePool;
 use std::env;
-use std::io::Error;
-use std::os::unix::fs::MetadataExt;
+
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use std::{io, net::SocketAddr};
-use tokio::fs::File;
-use tokio::io::BufWriter;
-use tokio_util::io::StreamReader;
-use tower::{ServiceBuilder, ServiceExt};
+
+use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
-use tower_http::services::ServeFile;
+
 use tower_http::{
     timeout::TimeoutLayer,
     trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
     LatencyUnit, ServiceBuilderExt,
 };
-use tracing::log;
+
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Serialize)]
@@ -74,16 +55,11 @@ pub struct AppState {
     pool: SqlitePool,
 }
 
-#[derive(Clone, PartialEq, PartialOrd, sqlx::Type, Debug)]
+#[derive(Clone, PartialEq, PartialOrd, sqlx::Type, Debug, Default)]
 pub enum Role {
+    #[default]
     User,
     Admin,
-}
-
-impl Default for Role {
-    fn default() -> Self {
-        Role::User
-    }
 }
 
 #[derive(Debug, Default, Clone, sqlx::FromRow)]

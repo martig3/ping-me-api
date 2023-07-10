@@ -1,26 +1,20 @@
 use axum::{
-    body::{Body, Bytes},
-    extract::{BodyStream, Path, State},
-    http::{Request, Uri},
+    extract::{Path, State},
     response::IntoResponse,
-    routing::{get, post},
-    BoxError, Json, Router,
+    routing::{get, post}, Json, Router,
 };
 use sqlx::{Pool, Sqlite};
-use std::{io::Error, os::unix::prelude::MetadataExt};
-use tokio_util::io::StreamReader;
-use tower::ServiceExt;
-use tower_http::services::ServeFile;
 
-use axum::body::boxed;
-use axum_login::RequireAuthorizationLayer;
-use chrono::{DateTime, Utc};
-use futures::{Stream, TryStreamExt};
+
+
+
+
+
+
+
+
 use reqwest::StatusCode;
-use tokio::{
-    fs::{metadata, read_dir, File},
-    io::{self, BufWriter},
-};
+
 
 use crate::{AppState, RequireAuth, Role, UserInvite, UPLOADS_DIRECTORY};
 pub fn admin_routes() -> Router<AppState> {

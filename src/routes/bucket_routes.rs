@@ -143,8 +143,8 @@ async fn serve_file(path: &str, uri: &Uri) -> impl IntoResponse {
     }
 }
 fn is_file(path: &str) -> bool {
-    let path_split = path.split("/");
+    let path_split = path.split('/');
     let path = path_split.last().unwrap();
-    let split: Vec<&str> = path.split(".").collect();
+    let split: Vec<&str> = path.split('.').collect();
     split.len() > 1
 }
