@@ -458,7 +458,13 @@ async fn oauth_callback_handler(
         log::debug!("csrf state is invalid, cannot login",);
 
         // Return to some error
-        return Redirect::to("/protected");
+        return Redirect::to(
+            format!(
+                "{}/errors/invalid-csrf",
+                env::var("CLIENT_BASE_URL").unwrap()
+            )
+            .as_str(),
+        );
     }
 
     log::debug!("Getting oauth token");
@@ -573,6 +579,12 @@ async fn get_invites(state: State<AppState>) -> impl IntoResponse {
 }
 async fn put_invite(state: State<AppState>, Json(invite): Json<UserInvite>) -> impl IntoResponse {
     let pool = &state.pool;
+    if invite.email == "" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Email cannot be an empty string".to_string(),
+        ));
+    }
     let existing = get_user_invite(pool, &invite.email).await;
     if existing.is_some() {
         return Err((StatusCode::BAD_REQUEST, "Email already exists".to_string()));
