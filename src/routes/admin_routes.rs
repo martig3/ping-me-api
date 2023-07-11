@@ -1,20 +1,11 @@
 use axum::{
     extract::{Path, State},
     response::IntoResponse,
-    routing::{get, post}, Json, Router,
+    routing::{get, post},
+    Json, Router,
 };
-use sqlx::{Pool, Sqlite};
-
-
-
-
-
-
-
-
-
 use reqwest::StatusCode;
-
+use sqlx::{Pool, Sqlite};
 
 use crate::{AppState, RequireAuth, Role, UserInvite, UPLOADS_DIRECTORY};
 pub fn admin_routes() -> Router<AppState> {

@@ -1,20 +1,9 @@
-use axum::{
-    response::IntoResponse,
-    routing::{get}, Extension, Json, Router,
-};
+use axum::{response::IntoResponse, routing::get, Extension, Json, Router};
 use serde::{Deserialize, Serialize};
 
-use std::{env};
-
-
-
-
+use std::env;
 
 use axum_login::RequireAuthorizationLayer;
-
-
-
-
 
 use crate::{AppState, User};
 

@@ -48,6 +48,7 @@ struct FileInfo {
     is_directory: bool,
     size: u64,
     modified_at: String,
+    created_by: String,
 }
 
 #[derive(Clone)]
