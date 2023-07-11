@@ -1,11 +1,12 @@
 use axum::{
     body::{Body, Bytes},
-    extract::{BodyStream, Path},
+    extract::{BodyStream, Path, State},
     http::{Request, Uri},
     response::IntoResponse,
     routing::get,
-    BoxError, Json, Router,
+    BoxError, Extension, Json, Router,
 };
+use sqlx::{Pool, Sqlite};
 use std::{io::Error, os::unix::prelude::MetadataExt};
 use tokio_util::io::StreamReader;
 use tower::ServiceExt;
@@ -14,7 +15,7 @@ use tower_http::services::ServeFile;
 use axum::body::boxed;
 use axum_login::RequireAuthorizationLayer;
 use chrono::{DateTime, Utc};
-use futures::{Stream, TryStreamExt};
+use futures::{FutureExt, Stream, TryStreamExt};
 use reqwest::StatusCode;
 use tokio::{
     fs::{metadata, read_dir, File},
@@ -47,39 +48,73 @@ async fn get_buckets() -> impl IntoResponse {
     }
     (StatusCode::OK, Json(buckets))
 }
-async fn get_route(Path(path): Path<String>, uri: Uri) -> impl IntoResponse {
+async fn get_route(
+    state: State<AppState>,
+    Path(path): Path<String>,
+    uri: Uri,
+) -> impl IntoResponse {
     let path = format!("{}/{}", &UPLOADS_DIRECTORY, path);
     let Ok(meta) = metadata(&path).await else {
         return Err((StatusCode::BAD_REQUEST, "Invalid path".to_string()));
     };
 
     if meta.is_dir() {
-        Ok(get_dir(&path).await.into_response())
+        Ok(get_dir(&path, &state.pool).await.into_response())
     } else {
         Ok(serve_file(&path, &uri).await.into_response())
     }
 }
 
-async fn get_dir(path: &String) -> impl IntoResponse {
+#[derive(Debug)]
+pub struct Metadata {
+    created_by: Option<i64>,
+    created_by_email: String,
+    bucket: String,
+    file_name: String,
+    full_path: String,
+}
+async fn get_dir(path: &String, pool: &Pool<Sqlite>) -> impl IntoResponse {
     let mut dir = read_dir(path).await.unwrap();
     let mut file_infos: Vec<FileInfo> = Vec::new();
+    let path_split: Vec<&str> = path.split('/').collect();
+    let bucket = path_split[1];
+    let folder_meta: Vec<Metadata> =
+        sqlx::query_as!(Metadata, "select m.created_by, u.email as created_by_email, m.bucket, m.file_name, m.full_path from metadata as m join users as u on u.id = m.created_by where bucket = $1", bucket)
+            .fetch_all(pool)
+            .await
+            .unwrap();
     while let Ok(entry) = dir.next_entry().await {
         let Some(entry) = entry else {
             break;
         };
         let metadata = entry.metadata().await.unwrap();
         let modified_at: DateTime<Utc> = metadata.modified().unwrap().into();
+        let created_by = folder_meta
+            .iter()
+            .find(|f| f.file_name == entry.file_name().to_str().unwrap())
+            .unwrap_or(&Metadata {
+                created_by: None,
+                created_by_email: String::new(),
+                bucket: String::new(),
+                file_name: String::new(),
+                full_path: String::new(),
+            })
+            .created_by_email
+            .clone();
         file_infos.push(FileInfo {
             name: String::from(entry.file_name().to_str().unwrap()),
             is_directory: metadata.is_dir(),
             size: metadata.size(),
             modified_at: modified_at.to_rfc3339(),
+            created_by,
         });
         file_infos.sort_by(|a, b| b.is_directory.cmp(&a.is_directory));
     }
     (StatusCode::OK, Json(file_infos))
 }
 async fn save_request(
+    state: State<AppState>,
+    Extension(user): Extension<User>,
     Path(path): Path<String>,
     body: BodyStream,
 ) -> Result<(), (StatusCode, String)> {
@@ -90,9 +125,22 @@ async fn save_request(
             Err(error) => return Err((StatusCode::INTERNAL_SERVER_ERROR, error.to_string())),
         }
     }
-    stream_to_file(path.as_str(), body).await
+    match stream_to_file(path.as_str(), body).await {
+        Ok(result) => {
+            let path_split: Vec<&str> = path.split('/').collect();
+            let bucket = path_split[1];
+            let file_name = path_split[path_split.len() - 1];
+            sqlx::query!("insert or replace into metadata (created_by, bucket, file_name, full_path) values ($1, $2, $3, $4)", user.id, bucket, file_name, path,)
+            .execute(&state.pool).await.unwrap();
+            return Ok(result);
+        }
+        Err(err) => Err(err),
+    }
 }
-async fn delete_request(Path(path): Path<String>) -> Result<StatusCode, (StatusCode, String)> {
+async fn delete_request(
+    state: State<AppState>,
+    Path(path): Path<String>,
+) -> Result<StatusCode, (StatusCode, String)> {
     let path = format!("{}/{}", &UPLOADS_DIRECTORY, path);
     if let Ok(_) = tokio::fs::read_dir(&path).await {
         match tokio::fs::remove_dir_all(&path).await {
@@ -100,9 +148,13 @@ async fn delete_request(Path(path): Path<String>) -> Result<StatusCode, (StatusC
             Err(error) => return Err((StatusCode::INTERNAL_SERVER_ERROR, error.to_string())),
         }
     }
-    if let Err(error) = tokio::fs::remove_file(path).await {
+    if let Err(error) = tokio::fs::remove_file(&path).await {
         return Err((StatusCode::INTERNAL_SERVER_ERROR, error.to_string()));
     }
+    sqlx::query!("delete from metadata where full_path = $1", path)
+        .execute(&state.pool)
+        .await
+        .unwrap();
     Ok(StatusCode::NO_CONTENT)
 }
 
