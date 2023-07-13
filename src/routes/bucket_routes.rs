@@ -6,6 +6,7 @@ use axum::{
     routing::get,
     BoxError, Extension, Json, Router,
 };
+use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
 use std::{io::Error, os::unix::prelude::MetadataExt};
 use tokio_util::io::StreamReader;
@@ -15,7 +16,7 @@ use tower_http::services::ServeFile;
 use axum::body::boxed;
 use axum_login::RequireAuthorizationLayer;
 use chrono::{DateTime, Utc};
-use futures::{FutureExt, Stream, TryStreamExt};
+use futures::{Stream, TryStreamExt};
 use reqwest::StatusCode;
 use tokio::{
     fs::{metadata, read_dir, File},
@@ -65,13 +66,16 @@ async fn get_route(
     }
 }
 
-#[derive(Debug)]
+#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Metadata {
-    created_by: Option<i64>,
-    created_by_email: String,
-    bucket: String,
-    file_name: String,
-    full_path: String,
+    pub id: i64,
+    pub created_by: Option<i64>,
+    pub created_by_email: String,
+    pub bucket: String,
+    pub file_name: String,
+    pub full_path: String,
 }
 async fn get_dir(path: &String, pool: &Pool<Sqlite>) -> impl IntoResponse {
     let mut dir = read_dir(path).await.unwrap();
@@ -79,7 +83,7 @@ async fn get_dir(path: &String, pool: &Pool<Sqlite>) -> impl IntoResponse {
     let path_split: Vec<&str> = path.split('/').collect();
     let bucket = path_split[1];
     let folder_meta: Vec<Metadata> =
-        sqlx::query_as!(Metadata, "select m.created_by, u.email as created_by_email, m.bucket, m.file_name, m.full_path from metadata as m join users as u on u.id = m.created_by where bucket = $1", bucket)
+        sqlx::query_as!(Metadata, "select m.id, m.created_by, u.email as created_by_email, m.bucket, m.file_name, m.full_path from metadata as m join users as u on u.id = m.created_by where bucket = $1", bucket)
             .fetch_all(pool)
             .await
             .unwrap();
@@ -93,6 +97,7 @@ async fn get_dir(path: &String, pool: &Pool<Sqlite>) -> impl IntoResponse {
             .iter()
             .find(|f| f.file_name == entry.file_name().to_str().unwrap())
             .unwrap_or(&Metadata {
+                id: 0,
                 created_by: None,
                 created_by_email: String::new(),
                 bucket: String::new(),
@@ -128,9 +133,11 @@ async fn save_request(
     match stream_to_file(path.as_str(), body).await {
         Ok(result) => {
             let path_split: Vec<&str> = path.split('/').collect();
-            let bucket = path_split[1];
+            let path_split = path_split[1..].to_vec();
+            let path = path_split.join("/");
+            let bucket = path_split[0];
             let file_name = path_split[path_split.len() - 1];
-            sqlx::query!("insert or replace into metadata (created_by, bucket, file_name, full_path) values ($1, $2, $3, $4)", user.id, bucket, file_name, path,)
+            sqlx::query!("insert or replace into metadata (created_by, bucket, file_name, full_path) values ($1, $2, $3, $4)", user.id, bucket, file_name, path)
             .execute(&state.pool).await.unwrap();
             return Ok(result);
         }
