@@ -16,12 +16,8 @@ struct SearchRequest {
 
 pub fn buckets_routes() -> Router<AppState> {
     Router::new()
-        .route(
-            "/:name",
-            put(create_bucket)
-                .layer(RequireAuth::login_with_role(Role::Admin..))
-                .delete(delete_bucket),
-        )
+        .route("/:name", put(create_bucket).delete(delete_bucket))
+        .route_layer(RequireAuth::login_with_role(Role::Admin..))
         .route("/", get(get_buckets))
         .route("/:name/search", get(get_bucket_search))
 }
