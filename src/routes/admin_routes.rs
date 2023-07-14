@@ -1,30 +1,16 @@
-use axum::{
-    extract::{Path, State},
-    response::IntoResponse,
-    routing::{get, post},
-    Json, Router,
-};
+use axum::{extract::State, response::IntoResponse, routing::get, Json, Router};
 use reqwest::StatusCode;
 use sqlx::{Pool, Sqlite};
 
-use crate::{AppState, RequireAuth, Role, UserInvite, UPLOADS_DIRECTORY};
+use crate::{AppState, RequireAuth, Role, UserInvite};
 pub fn admin_routes() -> Router<AppState> {
     Router::new()
-        .route("/bucket/create/:name", post(create_bucket))
         .route(
             "/invites",
             get(get_invites).put(put_invite).delete(delete_invite),
         )
         .route_layer(RequireAuth::login_with_role(Role::Admin..))
 }
-async fn create_bucket(Path(name): Path<String>) -> Result<StatusCode, (StatusCode, String)> {
-    let path = format!("{}/{}", &UPLOADS_DIRECTORY, name);
-    match tokio::fs::create_dir(path).await {
-        Ok(_) => Ok(StatusCode::NO_CONTENT),
-        Err(error) => Err((StatusCode::INTERNAL_SERVER_ERROR, error.to_string())),
-    }
-}
-
 async fn get_invites(state: State<AppState>) -> impl IntoResponse {
     let pool = &state.pool;
     let invites = sqlx::query_as!(UserInvite, "select * from user_invites order by email ")

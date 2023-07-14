@@ -1,54 +1,27 @@
 use crate::Role;
 use crate::UserInvite;
 
-
 use axum::extract::Query;
 use axum::extract::State;
 
 use axum::response::Redirect;
 use axum::Extension;
-use axum::{
-    response::IntoResponse,
-    routing::{get}, Router,
-};
+use axum::{response::IntoResponse, routing::get, Router};
 
 use axum_login::axum_sessions::extractors::ReadableSession;
 use axum_login::axum_sessions::extractors::WritableSession;
 
-
-
-
-
 use axum_login::RequireAuthorizationLayer;
 
-
 use oauth2::TokenResponse;
-use oauth2::{
-    basic::BasicClient, reqwest::async_http_client, AuthorizationCode, CsrfToken, Scope,
-};
-
-
+use oauth2::{basic::BasicClient, reqwest::async_http_client, AuthorizationCode, CsrfToken, Scope};
 
 use serde::Deserialize;
 use serde::Serialize;
 
-
-
 use std::env;
 
-
-
-
-
-
-
-
-
-
-
-
 use tracing::log;
-
 
 use crate::AppState;
 use crate::AuthContext;

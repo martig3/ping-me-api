@@ -14,7 +14,6 @@ use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
 use axum::body::boxed;
-use axum_login::RequireAuthorizationLayer;
 use chrono::{DateTime, Utc};
 use futures::{Stream, TryStreamExt};
 use reqwest::StatusCode;
@@ -23,32 +22,15 @@ use tokio::{
     io::{self, BufWriter},
 };
 
-use crate::{AppState, FileInfo, Role, User, UPLOADS_DIRECTORY};
+use crate::{AppState, FileInfo, User, UPLOADS_DIRECTORY};
 
 pub fn bucket_routes() -> Router<AppState> {
-    Router::new()
-        .route("/", get(get_buckets))
-        .route(
-            "/*path",
-            get(get_route).post(save_request).delete(delete_request),
-        )
-        .route_layer(RequireAuthorizationLayer::<i64, User, Role>::login())
+    Router::new().route(
+        "/*path",
+        get(get_route).post(save_request).delete(delete_request),
+    )
 }
-async fn get_buckets() -> impl IntoResponse {
-    let mut dir = read_dir(UPLOADS_DIRECTORY).await.unwrap();
-    let mut buckets = Vec::new();
-    while let Ok(entry) = dir.next_entry().await {
-        let Some(entry) = entry else {
-            break;
-        };
-        let path = entry.path();
-        let metadata = metadata(&path).await.unwrap();
-        if metadata.is_dir() {
-            buckets.push(String::from(entry.file_name().to_str().unwrap()));
-        }
-    }
-    (StatusCode::OK, Json(buckets))
-}
+
 async fn get_route(
     state: State<AppState>,
     Path(path): Path<String>,
