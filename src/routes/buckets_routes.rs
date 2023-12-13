@@ -1,14 +1,14 @@
 use axum::{
     extract::{Path, Query, State},
+    http::StatusCode,
     response::IntoResponse,
-    routing::{get, put},
+    routing::{delete, get, put},
     Json, Router,
 };
-use reqwest::StatusCode;
 use serde::Deserialize;
 use tokio::fs::{metadata, read_dir};
 
-use crate::{routes::bucket_routes::Metadata, AppState, RequireAuth, Role, UPLOADS_DIRECTORY};
+use crate::{routes::bucket_routes::Metadata, AppState, UPLOADS_DIRECTORY};
 #[derive(Debug, Deserialize)]
 struct SearchRequest {
     search: String,
@@ -16,8 +16,9 @@ struct SearchRequest {
 
 pub fn buckets_routes() -> Router<AppState> {
     Router::new()
-        .route("/:name", put(create_bucket).delete(delete_bucket))
-        .route_layer(RequireAuth::login_with_role(Role::Admin..))
+        .route("/:name", delete(delete_bucket))
+        // .route_layer(RequireAuth::login_with_role(Role::Admin..))
+        .route("/:name", put(create_bucket))
         .route("/", get(get_buckets))
         .route("/:name/search", get(get_bucket_search))
 }

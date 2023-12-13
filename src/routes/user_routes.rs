@@ -1,11 +1,9 @@
-use axum::{response::IntoResponse, routing::get, Extension, Json, Router};
+use axum::{response::IntoResponse, routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
 
 use std::env;
 
-use axum_login::RequireAuthorizationLayer;
-
-use crate::{AppState, User};
+use crate::{auth::AuthSession, AppState};
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -16,11 +14,10 @@ struct UserInfo {
     is_owner: bool,
 }
 pub fn user_routes() -> Router<AppState> {
-    Router::new()
-        .route("/me", get(user_info_handler))
-        .route_layer(RequireAuthorizationLayer::<i64, User>::login())
+    Router::new().route("/me", get(user_info_handler))
 }
-async fn user_info_handler(Extension(user): Extension<User>) -> impl IntoResponse {
+async fn user_info_handler(auth_session: AuthSession) -> impl IntoResponse {
+    let user = auth_session.user.unwrap();
     let is_owner = &user.email == &env::var("OWNER_EMAIL").expect("missing OWNER_EMAIL");
     Json(UserInfo {
         name: user.name,

@@ -1,9 +1,9 @@
 use axum::{
     body::{Body, Bytes},
-    extract::{BodyStream, Path, State},
-    http::{Request, Uri},
+    extract::{Path, State},
+    http::{Request, StatusCode, Uri},
     response::IntoResponse,
-    routing::get,
+    routing::{delete, get, post},
     BoxError, Extension, Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -13,22 +13,21 @@ use tokio_util::io::StreamReader;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
-use axum::body::boxed;
+use crate::auth::User;
 use chrono::{DateTime, Utc};
 use futures::{Stream, TryStreamExt};
-use reqwest::StatusCode;
 use tokio::{
     fs::{metadata, read_dir, File},
     io::{self, BufWriter},
 };
 
-use crate::{AppState, FileInfo, User, UPLOADS_DIRECTORY};
+use crate::{AppState, FileInfo, UPLOADS_DIRECTORY};
 
 pub fn bucket_routes() -> Router<AppState> {
-    Router::new().route(
-        "/*path",
-        get(get_route).post(save_request).delete(delete_request),
-    )
+    Router::new()
+        .route("/*path", get(get_route))
+        .route("/*path", post(save_request))
+        .route("/*path", delete(delete_request))
 }
 
 async fn get_route(
@@ -103,7 +102,7 @@ async fn save_request(
     state: State<AppState>,
     Extension(user): Extension<User>,
     Path(path): Path<String>,
-    body: BodyStream,
+    body: Body,
 ) -> Result<(), (StatusCode, String)> {
     let path = format!("{}/{}", &UPLOADS_DIRECTORY, path);
     if !is_file(&path) {
@@ -112,7 +111,7 @@ async fn save_request(
             Err(error) => return Err((StatusCode::INTERNAL_SERVER_ERROR, error.to_string())),
         }
     }
-    match stream_to_file(path.as_str(), body).await {
+    match stream_to_file(path.as_str(), body.into_data_stream()).await {
         Ok(result) => {
             let path_split: Vec<&str> = path.split('/').collect();
             let path_split = path_split[1..].to_vec();
@@ -176,7 +175,7 @@ where
 async fn serve_file(path: &str, uri: &Uri) -> impl IntoResponse {
     let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
     match ServeFile::new(path).oneshot(req).await {
-        Ok(res) => Ok((StatusCode::OK, res.map(boxed))),
+        Ok(res) => Ok((StatusCode::OK, res)),
         Err(err) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Something went wrong: {}", err),

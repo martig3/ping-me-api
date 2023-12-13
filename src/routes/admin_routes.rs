@@ -1,15 +1,19 @@
-use axum::{extract::State, response::IntoResponse, routing::get, Json, Router};
-use reqwest::StatusCode;
+use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
+use axum_login::permission_required;
 use sqlx::{Pool, Sqlite};
 
-use crate::{AppState, RequireAuth, Role, UserInvite};
+use crate::{auth::Backend, AppState, UserInvite};
 pub fn admin_routes() -> Router<AppState> {
     Router::new()
         .route(
             "/invites",
             get(get_invites).put(put_invite).delete(delete_invite),
         )
-        .route_layer(RequireAuth::login_with_role(Role::Admin..))
+        .route_layer(permission_required!(
+            Backend,
+            login_url = "/login",
+            "restricted.admin",
+        ))
 }
 async fn get_invites(state: State<AppState>) -> impl IntoResponse {
     let pool = &state.pool;

@@ -1,32 +1,24 @@
+mod auth;
+mod errors;
 mod routes;
-
+use crate::auth::Backend;
 use crate::routes::routes;
-use axum::body::boxed;
+use axum::body::Bytes;
+use axum::error_handling::HandleErrorLayer;
+use axum::http::{header, HeaderValue, Method, StatusCode};
+use axum::{BoxError, Router};
 
-use axum::http::{header, HeaderValue, Method};
-
-use axum::Extension;
-use axum::{body::Bytes, Router};
-use axum_login::axum_sessions::async_session::MemoryStore;
-
-use axum_login::axum_sessions::SameSite;
-use axum_login::axum_sessions::SessionLayer;
-use axum_login::secrecy::SecretVec;
-use axum_login::AuthLayer;
-use axum_login::AuthUser;
-use axum_login::RequireAuthorizationLayer;
-use axum_login::SqliteStore;
-
+use axum_login::tower_sessions::cookie::SameSite;
+use axum_login::tower_sessions::{Expiry, MemoryStore, SessionManagerLayer};
+use axum_login::AuthManagerLayerBuilder;
 use oauth2::{basic::BasicClient, AuthUrl, ClientId, ClientSecret, RedirectUrl, TokenUrl};
 
-use rand::Rng;
 use serde::Deserialize;
 use serde::Serialize;
 
 use sqlx::SqlitePool;
 use std::env;
 
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -56,47 +48,6 @@ pub struct AppState {
     pool: SqlitePool,
 }
 
-#[derive(Clone, PartialEq, PartialOrd, sqlx::Type, Debug, Default)]
-pub enum Role {
-    #[default]
-    User,
-    Admin,
-}
-
-#[derive(Debug, Default, Clone, sqlx::FromRow)]
-pub struct User {
-    id: i64,
-    password_hash: String,
-    name: String,
-    email: String,
-    role: Role,
-    avatar_url: Option<String>,
-    discord_id: Option<String>,
-}
-impl AuthUser<i64> for User {
-    fn get_id(&self) -> i64 {
-        self.id
-    }
-
-    fn get_password_hash(&self) -> SecretVec<u8> {
-        SecretVec::new(self.password_hash.clone().into())
-    }
-}
-
-impl AuthUser<i64, Role> for User {
-    fn get_id(&self) -> i64 {
-        self.id
-    }
-
-    fn get_password_hash(&self) -> SecretVec<u8> {
-        SecretVec::new(self.password_hash.clone().into())
-    }
-
-    fn get_role(&self) -> Option<Role> {
-        Some(self.role.clone())
-    }
-}
-
 #[derive(Debug, Default, Clone, Serialize, Deserialize, sqlx::FromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct UserInvite {
@@ -104,8 +55,6 @@ pub struct UserInvite {
     user_id: Option<i64>,
     email: String,
 }
-type AuthContext = axum_login::extractors::AuthContext<i64, User, SqliteStore<User>>;
-type RequireAuth = RequireAuthorizationLayer<i64, User, Role>;
 const UPLOADS_DIRECTORY: &str = "uploads";
 
 #[tokio::main]
@@ -117,12 +66,7 @@ async fn main() {
         ))
         .with(tracing_subscriber::fmt::layer())
         .init();
-    let secret = rand::thread_rng().gen::<[u8; 64]>();
 
-    let session_store = MemoryStore::new();
-    let session_layer = SessionLayer::new(session_store, &secret)
-        .with_secure(false)
-        .with_same_site_policy(SameSite::Lax);
     let pool = SqlitePool::connect(&env::var("DATABASE_URL").expect("Expected DATABASE_URL"))
         .await
         .unwrap();
@@ -131,8 +75,6 @@ async fn main() {
         .await
         .expect("Error running migrations");
 
-    let user_store = SqliteStore::<User>::new(pool.clone());
-    let auth_layer = AuthLayer::new(user_store, &secret);
     let oauth_client = build_discord_oauth_client();
 
     let sensitive_headers: Arc<[_]> = vec![header::AUTHORIZATION, header::COOKIE].into();
@@ -174,31 +116,47 @@ async fn main() {
         )
         .layer(TimeoutLayer::new(Duration::from_secs(60 * 60 * 12)))
         .layer(cors)
-        // Box the response body so it implements `Default` which is required by axum
-        .map_response_body(boxed)
         .compression()
         .insert_response_header_if_not_present(
             header::CONTENT_TYPE,
             HeaderValue::from_static("application/octet-stream"),
         );
 
-    let shared_state = AppState { pool };
+    let shared_state = AppState { pool: pool.clone() };
+    // Session layer.
+    //
+    // This uses `tower-sessions` to establish a layer that will provide the session
+    // as a request extension.
+    let session_store = MemoryStore::default();
+    let session_layer = SessionManagerLayer::new(session_store)
+        .with_secure(false)
+        .with_same_site(SameSite::Lax) // Ensure we send the cookie from the OAuth redirect.
+        .with_expiry(Expiry::OnInactivity(time::Duration::days(1)));
 
+    // Auth service.
+    //
+    // This combines the session layer with our backend to establish the auth
+    // service which will provide the auth session as a request extension.
+    let backend = Backend::new(pool.clone(), oauth_client);
+    let auth_service = ServiceBuilder::new()
+        .layer(HandleErrorLayer::new(|_: BoxError| async {
+            StatusCode::BAD_REQUEST
+        }))
+        .layer(AuthManagerLayerBuilder::new(backend, session_layer).build());
     let app = Router::new()
         .nest("/api", routes())
         .layer(middleware)
-        .layer(auth_layer)
-        .layer(session_layer)
-        .layer(Extension(oauth_client))
+        .layer(auth_service)
         .with_state(shared_state);
 
     let host = matches!(env::var("ENV").as_deref(), Ok("prd"))
-        .then_some([0, 0, 0, 0])
-        .unwrap_or([127, 0, 0, 1]);
-    let addr = SocketAddr::from((host, 3000));
-    tracing::debug!("listening on {}", addr);
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
+        .then_some("0.0.0.0")
+        .unwrap_or("127.0.0.1");
+    let listener = tokio::net::TcpListener::bind(format!("{host}:3000"))
+        .await
+        .unwrap();
+    tracing::debug!("listening on {}", listener.local_addr().unwrap());
+    axum::serve(listener, app.into_make_service())
         .await
         .unwrap();
 }
