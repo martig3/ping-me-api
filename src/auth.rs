@@ -18,22 +18,6 @@ pub struct DiscordUser {
     pub discriminator: String,
 }
 
-#[derive(Clone, PartialEq, PartialOrd, sqlx::Type, Debug, Default)]
-pub enum Role {
-    #[default]
-    User,
-    Admin,
-}
-
-impl ToString for Role {
-    fn to_string(&self) -> String {
-        match self {
-            Role::User => "User".to_string(),
-            Role::Admin => "Admin".to_string(),
-        }
-    }
-}
-
 #[derive(Default, Clone, sqlx::FromRow)]
 pub struct User {
     pub id: i64,
@@ -168,8 +152,6 @@ impl AuthnBackend for Backend {
                     };
                 }
 
-                let role = if is_owner { Role::Admin } else { Role::User };
-                let role_str = role.to_string();
                 let access_token = token_res.access_token().secret().clone();
                 sqlx::query!(
                "insert into users (name, email, avatar_url, discord_id, access_token) values ($1, $2, $3, $4, $5);",
