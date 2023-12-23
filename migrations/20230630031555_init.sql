@@ -4,8 +4,6 @@ CREATE TABLE IF NOT EXISTS users
     id            INTEGER PRIMARY KEY NOT NULL,
     name          TEXT                NOT NULL,
     email         TEXT                NOT NULL,
-    pw_hash       TEXT                NOT NULL,
-    role          TEXT                NOT NULL,
     access_token  TEXT                NOT NULL,
     avatar_url    TEXT,
     discord_id    TEXT

@@ -37,10 +37,8 @@ impl ToString for Role {
 #[derive(Default, Clone, sqlx::FromRow)]
 pub struct User {
     pub id: i64,
-    pub pw_hash: String,
     pub name: String,
     pub email: String,
-    pub role: Role,
     pub avatar_url: Option<String>,
     pub discord_id: Option<String>,
     pub access_token: String,
@@ -149,7 +147,7 @@ impl AuthnBackend for Backend {
 
         // Fetch the user and log them in
         log::debug!("Getting user");
-        let user: Option<User> = sqlx::query_as!(User, r#"select u.id, u.name, u.email, u.access_token, u.pw_hash, u.role as "role: Role", u.avatar_url, u.discord_id from users as u where email = $1"#, email)
+        let user: Option<User> = sqlx::query_as!(User, r#"select u.id, u.name, u.email, u.access_token, u.avatar_url, u.discord_id from users as u where email = $1"#, email)
        .fetch_optional(&self.db)
        .await
        .unwrap();
@@ -174,11 +172,9 @@ impl AuthnBackend for Backend {
                 let role_str = role.to_string();
                 let access_token = token_res.access_token().secret().clone();
                 sqlx::query!(
-               "insert into users (pw_hash, name, email, role, avatar_url, discord_id, access_token) values ($1, $2, $3, $4, $5, $6, $7);",
-               user_data.username,
+               "insert into users (name, email, avatar_url, discord_id, access_token) values ($1, $2, $3, $4, $5);",
                user_data.username,
                email,
-               role_str,
                user_data.avatar,
                user_data.id,
                access_token,
@@ -188,7 +184,7 @@ impl AuthnBackend for Backend {
            .unwrap();
                 let user: User = sqlx::query_as!(
                User,
-               r#"select u.id, u.name, u.email, u.pw_hash,  u.role as "role: Role", u.avatar_url, u.discord_id, u.access_token from users as u where email = $1"#,
+               r#"select u.id, u.name, u.email, u.avatar_url, u.discord_id, u.access_token from users as u where email = $1"#,
                email
            )
            .fetch_one(&self.db)
