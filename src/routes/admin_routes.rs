@@ -1,5 +1,5 @@
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
-use axum_login::permission_required;
+use axum_login::{login_required, permission_required};
 use sqlx::{Pool, Sqlite};
 
 use crate::{auth::Backend, AppState, UserInvite};
@@ -9,10 +9,10 @@ pub fn admin_routes() -> Router<AppState> {
             "/invites",
             get(get_invites).put(put_invite).delete(delete_invite),
         )
+        .route_layer(login_required!(Backend))
         .route_layer(permission_required!(
             Backend,
-            login_url = "/login",
-            "restricted.admin",
+            "restricted.read",
         ))
 }
 async fn get_invites(state: State<AppState>) -> impl IntoResponse {

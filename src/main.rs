@@ -1,29 +1,26 @@
 mod auth;
 mod errors;
 mod routes;
+
+use std::env;
 use crate::auth::Backend;
 use crate::routes::routes;
 use axum::body::Bytes;
 use axum::error_handling::HandleErrorLayer;
 use axum::http::{header, HeaderValue, Method, StatusCode};
-use axum::{async_trait, BoxError, Router};
+use axum::{BoxError, Router};
 
 use axum_login::tower_sessions::cookie::SameSite;
-use axum_login::tower_sessions::session::Id;
-use axum_login::tower_sessions::{Expiry, MemoryStore, Session, SessionManagerLayer, SessionStore};
+use axum_login::tower_sessions::{Expiry, SessionManagerLayer};
 use axum_login::AuthManagerLayerBuilder;
 use oauth2::{basic::BasicClient, AuthUrl, ClientId, ClientSecret, RedirectUrl, TokenUrl};
 
-use serde::Deserialize;
-use serde::Serialize;
 
-use sqlx::{Executor, Pool, Sqlite, SqlitePool};
-use std::convert::Infallible;
-use std::env;
+use sqlx::SqlitePool;
 
 use std::sync::Arc;
 use std::time::Duration;
-
+use serde::{Deserialize, Serialize};
 use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
 
@@ -32,6 +29,7 @@ use tower_http::{
     trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
     LatencyUnit, ServiceBuilderExt,
 };
+use tower_sessions::SqliteStore;
 
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -57,31 +55,8 @@ pub struct UserInvite {
     user_id: Option<i64>,
     email: String,
 }
+
 const UPLOADS_DIRECTORY: &str = "uploads";
-
-#[derive(Clone)]
-pub struct DatabaseStore(Arc<Pool<Sqlite>>);
-
-#[async_trait]
-impl SessionStore for DatabaseStore {
-    type Error = Infallible;
-
-    async fn save(&self, session: &Session) -> Result<(), Self::Error> {
-        let db = self.0.acquire().await?;
-        let s = serde_json::to_string(session).unwrap();
-        self.0.lock().insert(*session.id(), session.clone());
-        Ok(())
-    }
-
-    async fn load(&self, session_id: &Id) -> Result<Option<Session>, Self::Error> {
-        Ok(self.0.lock().get(session_id).cloned())
-    }
-
-    async fn delete(&self, session_id: &Id) -> Result<(), Self::Error> {
-        self.0.lock().remove(session_id);
-        Ok(())
-    }
-}
 
 #[tokio::main]
 async fn main() {
@@ -153,7 +128,8 @@ async fn main() {
     //
     // This uses `tower-sessions` to establish a layer that will provide the session
     // as a request extension.
-    let session_store = MemoryStore::default();
+    let session_store = SqliteStore::new(pool.clone());
+    session_store.migrate().await.expect("error running migrations for tower_sessions");
     let session_layer = SessionManagerLayer::new(session_store)
         .with_secure(false)
         .with_same_site(SameSite::Lax) // Ensure we send the cookie from the OAuth redirect.
@@ -207,5 +183,5 @@ fn build_discord_oauth_client() -> BasicClient {
         auth_url,
         Some(token_url),
     )
-    .set_redirect_uri(RedirectUrl::new(redirect_url).unwrap())
+        .set_redirect_uri(RedirectUrl::new(redirect_url).unwrap())
 }

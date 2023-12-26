@@ -21,11 +21,13 @@ serde_json = "*"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tower = "0.4.13"
 tower-http = { version = "0.5", features = ["full"] }
-axum-login = { version = "0.10" }
+tower-sessions = { version = "0.8.2", features = ["sqlx-store", "sqlite-store"] }
+axum-login = { version = "0.11.0" }
 oauth2 = "4.1.0"
 time = "0.3.30"
 reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "json"] }
 thiserror = "1.0"
+parking_lot = { version = "0.12.1", features = [] }
 [dependencies.sqlx]
 version = "0.7"
 default-features = false

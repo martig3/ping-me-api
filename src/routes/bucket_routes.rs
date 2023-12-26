@@ -4,16 +4,17 @@ use axum::{
     http::{Request, StatusCode, Uri},
     response::IntoResponse,
     routing::{delete, get, post},
-    BoxError, Extension, Json, Router,
+    BoxError, Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
 use std::{io::Error, os::unix::prelude::MetadataExt};
+use axum_login::login_required;
 use tokio_util::io::StreamReader;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
-use crate::auth::User;
+use crate::auth::{AuthSession, Backend};
 use chrono::{DateTime, Utc};
 use futures::{Stream, TryStreamExt};
 use tokio::{
@@ -28,6 +29,7 @@ pub fn bucket_routes() -> Router<AppState> {
         .route("/*path", get(get_route))
         .route("/*path", post(save_request))
         .route("/*path", delete(delete_request))
+        .route_layer(login_required!(Backend))
 }
 
 async fn get_route(
@@ -58,6 +60,7 @@ pub struct Metadata {
     pub file_name: String,
     pub full_path: String,
 }
+
 async fn get_dir(path: &String, pool: &Pool<Sqlite>) -> impl IntoResponse {
     let mut dir = read_dir(path).await.unwrap();
     let mut file_infos: Vec<FileInfo> = Vec::new();
@@ -98,19 +101,21 @@ async fn get_dir(path: &String, pool: &Pool<Sqlite>) -> impl IntoResponse {
     }
     (StatusCode::OK, Json(file_infos))
 }
+
 async fn save_request(
     state: State<AppState>,
-    Extension(user): Extension<User>,
+    AuthSession { user, .. }: AuthSession,
     Path(path): Path<String>,
     body: Body,
-) -> Result<(), (StatusCode, String)> {
+) -> impl IntoResponse {
     let path = format!("{}/{}", &UPLOADS_DIRECTORY, path);
     if !is_file(&path) {
-        match tokio::fs::create_dir(path).await {
-            Ok(_) => return Ok(()),
-            Err(error) => return Err((StatusCode::INTERNAL_SERVER_ERROR, error.to_string())),
-        }
+        return match tokio::fs::create_dir(path).await {
+            Ok(_) => Ok(()),
+            Err(error) => Err((StatusCode::INTERNAL_SERVER_ERROR, error.to_string())),
+        };
     }
+    let user = user.unwrap();
     match stream_to_file(path.as_str(), body.into_data_stream()).await {
         Ok(result) => {
             let path_split: Vec<&str> = path.split('/').collect();
@@ -119,22 +124,23 @@ async fn save_request(
             let bucket = path_split[0];
             let file_name = path_split[path_split.len() - 1];
             sqlx::query!("insert or replace into metadata (created_by, bucket, file_name, full_path) values ($1, $2, $3, $4)", user.id, bucket, file_name, path)
-            .execute(&state.pool).await.unwrap();
+                .execute(&state.pool).await.unwrap();
             return Ok(result);
         }
         Err(err) => Err(err),
     }
 }
+
 async fn delete_request(
     state: State<AppState>,
     Path(path): Path<String>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let path = format!("{}/{}", &UPLOADS_DIRECTORY, path);
     if let Ok(_) = tokio::fs::read_dir(&path).await {
-        match tokio::fs::remove_dir_all(&path).await {
-            Ok(_) => return Ok(StatusCode::NO_CONTENT),
-            Err(error) => return Err((StatusCode::INTERNAL_SERVER_ERROR, error.to_string())),
-        }
+        return match tokio::fs::remove_dir_all(&path).await {
+            Ok(_) => Ok(StatusCode::NO_CONTENT),
+            Err(error) => Err((StatusCode::INTERNAL_SERVER_ERROR, error.to_string())),
+        };
     }
     if let Err(error) = tokio::fs::remove_file(&path).await {
         return Err((StatusCode::INTERNAL_SERVER_ERROR, error.to_string()));
@@ -148,9 +154,9 @@ async fn delete_request(
 
 // Save a `Stream` to a file
 async fn stream_to_file<S, E>(path: &str, stream: S) -> Result<(), (StatusCode, String)>
-where
-    S: Stream<Item = Result<Bytes, E>>,
-    E: Into<BoxError>,
+    where
+        S: Stream<Item=Result<Bytes, E>>,
+        E: Into<BoxError>,
 {
     async {
         // Convert the stream into an `AsyncRead`.
@@ -164,12 +170,12 @@ where
         let mut file = BufWriter::new(File::create(path).await?);
 
         // Copy the body into the file.
-        tokio::io::copy(&mut body_reader, &mut file).await?;
+        io::copy(&mut body_reader, &mut file).await?;
 
         Ok::<_, Error>(())
     }
-    .await
-    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))
 }
 
 async fn serve_file(path: &str, uri: &Uri) -> impl IntoResponse {
@@ -182,6 +188,7 @@ async fn serve_file(path: &str, uri: &Uri) -> impl IntoResponse {
         )),
     }
 }
+
 fn is_file(path: &str) -> bool {
     let path_split = path.split('/');
     let path = path_split.last().unwrap();

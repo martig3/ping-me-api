@@ -13,6 +13,7 @@ use axum_login::tower_sessions::Session;
 
 use oauth2::CsrfToken;
 use serde::Deserialize;
+
 pub const CSRF_STATE_KEY: &str = "oauth.csrf-state";
 pub const NEXT_URL_KEY: &str = "auth.next-url";
 
@@ -31,34 +32,39 @@ pub fn auth_routes() -> Router<AppState> {
         .route("/login", get(login))
         .route("/discord/callback", get(callback))
 }
+
 pub async fn logout(mut auth_session: AuthSession) -> impl IntoResponse {
-    match auth_session.logout() {
+    match auth_session.logout().await {
         Ok(_) => Redirect::to("/login").into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
+
 pub async fn login(auth_session: AuthSession, session: Session) -> impl IntoResponse {
     let (auth_url, csrf_state) = auth_session.backend.authorize_url();
 
     session
         .insert(CSRF_STATE_KEY, csrf_state.secret())
+        .await
         .expect("Serialization should not fail.");
 
     session
         .insert(NEXT_URL_KEY, "/buckets")
+        .await
         .expect("Serialization should not fail.");
 
     Redirect::to(auth_url.as_str()).into_response()
 }
+
 pub async fn callback(
     mut auth_session: AuthSession,
     session: Session,
     Query(AuthzResp {
-        code,
-        state: new_state,
-    }): Query<AuthzResp>,
+              code,
+              state: new_state,
+          }): Query<AuthzResp>,
 ) -> impl IntoResponse {
-    let Ok(Some(old_state)) = session.get(CSRF_STATE_KEY) else {
+    let Ok(Some(old_state)) = session.get(CSRF_STATE_KEY).await else {
         return StatusCode::BAD_REQUEST.into_response();
     };
 
@@ -70,7 +76,7 @@ pub async fn callback(
 
     let user = match auth_session.authenticate(creds).await {
         Ok(Some(user)) => user,
-        Ok(None) => return (StatusCode::UNAUTHORIZED).into_response(),
+        Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
         Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     };
 

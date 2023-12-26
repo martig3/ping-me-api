@@ -1,5 +1,5 @@
 -- Add migration script here
-CREATE TABLE IF NOT EXISTS users 
+CREATE TABLE IF NOT EXISTS users
 (
     id            INTEGER PRIMARY KEY NOT NULL,
     name          TEXT                NOT NULL,
@@ -56,3 +56,17 @@ create table if not exists groups_permissions (
     permission_id integer references permissions(id),
     primary key (group_id, permission_id)
 );
+
+-- Insert "users" and "superusers" groups.
+insert into groups (name) values ('admin');
+
+-- Insert individual permissions.
+insert into permissions (name) values ('restricted.read');
+
+
+-- Insert group permissions.
+insert into groups_permissions (group_id, permission_id)
+values (
+           (select id from groups where name = 'admin'),
+           (select id from permissions where name = 'restricted.read')
+       );

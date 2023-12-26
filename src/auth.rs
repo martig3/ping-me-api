@@ -9,6 +9,7 @@ use sqlx::{prelude::FromRow, SqlitePool};
 use std::{collections::HashSet, env};
 
 use crate::{errors::BackendError, UserInvite};
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DiscordUser {
     pub id: String,
@@ -77,6 +78,7 @@ impl Backend {
             .url()
     }
 }
+
 #[derive(Debug, Clone, Eq, PartialEq, Hash, FromRow)]
 pub struct Permission {
     pub name: String,
@@ -89,12 +91,14 @@ impl From<&str> for Permission {
         }
     }
 }
+
 #[async_trait]
 impl AuthnBackend for Backend {
     type User = User;
     type Credentials = Credentials;
     type Error = BackendError;
 
+    //noinspection ALL
     async fn authenticate(
         &self,
         creds: Self::Credentials,
@@ -132,9 +136,9 @@ impl AuthnBackend for Backend {
         // Fetch the user and log them in
         log::debug!("Getting user");
         let user: Option<User> = sqlx::query_as!(User, r#"select u.id, u.name, u.email, u.access_token, u.avatar_url, u.discord_id from users as u where email = $1"#, email)
-       .fetch_optional(&self.db)
-       .await
-       .unwrap();
+            .fetch_optional(&self.db)
+            .await
+            .unwrap();
         let user = match user {
             Some(user) => user,
             None => {
@@ -145,33 +149,46 @@ impl AuthnBackend for Backend {
                         "select * from user_invites where email = $1",
                         email
                     )
-                    .fetch_optional(&self.db)
-                    .await
-                    .unwrap() else {
+                        .fetch_optional(&self.db)
+                        .await
+                        .unwrap() else {
                         return Err(BackendError::NoEmail);
                     };
                 }
 
                 let access_token = token_res.access_token().secret().clone();
                 sqlx::query!(
-               "insert into users (name, email, avatar_url, discord_id, access_token) values ($1, $2, $3, $4, $5);",
-               user_data.username,
-               email,
-               user_data.avatar,
-               user_data.id,
-               access_token,
-           )
-           .execute(&self.db)
-           .await
-           .unwrap();
+                    "insert into users (name, email, avatar_url, discord_id, access_token) values ($1, $2, $3, $4, $5);",
+                    user_data.username,
+                    email,
+                    user_data.avatar,
+                    user_data.id,
+                    access_token,
+                )
+                    .execute(&self.db)
+                    .await
+                    .unwrap();
                 let user: User = sqlx::query_as!(
-               User,
-               r#"select u.id, u.name, u.email, u.avatar_url, u.discord_id, u.access_token from users as u where email = $1"#,
-               email
-           )
-           .fetch_one(&self.db)
-           .await
-           .unwrap();
+                    User,
+                    r#"select u.id, u.name, u.email, u.avatar_url, u.discord_id, u.access_token from users as u where email = $1"#,
+                    email
+                )
+                    .fetch_one(&self.db)
+                    .await
+                    .unwrap();
+                if is_owner {
+                    sqlx::query!(
+                    r#"insert into users_groups (user_id, group_id)
+                            values (
+                                (select id from users where email = $1),
+                                (select id from groups where name = 'admin')
+                            )"#,
+                    email
+                )
+                        .execute(&self.db)
+                        .await
+                        .unwrap();
+                }
                 user
             }
         };
@@ -208,13 +225,14 @@ impl AuthzBackend for Backend {
             "#,
             user.id
         )
-        .fetch_all(&self.db)
-        .await
-        .map_err(Self::Error::Sqlx)?;
+            .fetch_all(&self.db)
+            .await
+            .map_err(Self::Error::Sqlx)?;
 
         Ok(permissions.into_iter().collect())
     }
 }
+
 // We use a type alias for convenience.
 //
 // Note that we've supplied our concrete backend here.
