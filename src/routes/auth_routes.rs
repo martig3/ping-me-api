@@ -8,15 +8,17 @@ use axum::http::StatusCode;
 use axum::response::Redirect;
 use axum::{response::IntoResponse, routing::get, Router};
 
-use axum_login::login_required;
 use axum_login::tower_sessions::Session;
+use axum_login::{login_required, Error};
 
 use oauth2::CsrfToken;
 use serde::Deserialize;
+use BackendError::GenericError;
 
 pub const CSRF_STATE_KEY: &str = "oauth.csrf-state";
 pub const NEXT_URL_KEY: &str = "auth.next-url";
 
+use crate::errors::BackendError;
 use crate::AppState;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -49,7 +51,7 @@ pub async fn login(auth_session: AuthSession, session: Session) -> impl IntoResp
         .expect("Serialization should not fail.");
 
     session
-        .insert(NEXT_URL_KEY, "/buckets")
+        .insert(NEXT_URL_KEY, "buckets")
         .await
         .expect("Serialization should not fail.");
 
@@ -60,9 +62,9 @@ pub async fn callback(
     mut auth_session: AuthSession,
     session: Session,
     Query(AuthzResp {
-              code,
-              state: new_state,
-          }): Query<AuthzResp>,
+        code,
+        state: new_state,
+    }): Query<AuthzResp>,
 ) -> impl IntoResponse {
     let Ok(Some(old_state)) = session.get(CSRF_STATE_KEY).await else {
         return StatusCode::BAD_REQUEST.into_response();
@@ -75,19 +77,37 @@ pub async fn callback(
     };
 
     let user = match auth_session.authenticate(creds).await {
-        Ok(Some(user)) => user,
-        Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
-        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        Ok(Some(user)) => Ok(user),
+        Ok(None) => Err(GenericError),
+        Err(err) => match err {
+            Error::Session(_) => Err(GenericError),
+            Error::Backend(backend_err) => match backend_err {
+                BackendError::NoEmail => Err(BackendError::NoEmail),
+                _ => Err(GenericError),
+            },
+        },
+    };
+    let Ok(user) = user else {
+        return match user.unwrap_err() {
+            BackendError::NoEmail => Redirect::to(
+                format!("{}/errors/no-invite", &env::var("CLIENT_BASE_URL").unwrap()).as_str(),
+            )
+            .into_response(),
+            _ => Redirect::to(
+                format!("{}/errors/auth", &env::var("CLIENT_BASE_URL").unwrap()).as_str(),
+            )
+            .into_response(),
+        };
     };
 
     if auth_session.login(&user).await.is_err() {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
-    // if let Ok(Some(next)) = session.remove::<String>(NEXT_URL_KEY) {
-    //     Redirect::to(&next).into_response()
-    // } else {
-    //     Redirect::to("/").into_response()
-    // }
-    Redirect::to(format!("{}", env::var("CLIENT_BASE_URL").unwrap()).as_str()).into_response()
+    if let Ok(Some(next)) = session.remove::<String>(NEXT_URL_KEY).await {
+        Redirect::to(format!("{}/{}", env::var("CLIENT_BASE_URL").unwrap(), next).as_str())
+            .into_response()
+    } else {
+        Redirect::to(env::var("CLIENT_BASE_URL").unwrap().as_str()).into_response()
+    }
 }

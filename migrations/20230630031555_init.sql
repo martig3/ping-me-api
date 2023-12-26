@@ -45,7 +45,7 @@ create table if not exists permissions (
 
 -- Create `users_groups` table for many-to-many relationships between users and groups.
 create table if not exists users_groups (
-    user_id integer references users(id),
+    user_id integer references users(id) ON DELETE CASCADE,
     group_id integer references groups(id),
     primary key (user_id, group_id)
 );
@@ -57,10 +57,12 @@ create table if not exists groups_permissions (
     primary key (group_id, permission_id)
 );
 
--- Insert "users" and "superusers" groups.
+insert into groups (name) values ('user');
 insert into groups (name) values ('admin');
 
--- Insert individual permissions.
+insert into permissions (name) values ('protected.read');
+insert into permissions (name) values ('protected.write');
+insert into permissions (name) values ('protected.delete');
 insert into permissions (name) values ('restricted.read');
 
 
@@ -69,4 +71,17 @@ insert into groups_permissions (group_id, permission_id)
 values (
            (select id from groups where name = 'admin'),
            (select id from permissions where name = 'restricted.read')
+       );
+insert into groups_permissions (group_id, permission_id)
+values (
+           (select id from groups where name = 'user'),
+           (select id from permissions where name = 'protected.read')
+       ),
+       (
+           (select id from groups where name = 'user'),
+           (select id from permissions where name = 'protected.write')
+       ),
+       (
+           (select id from groups where name = 'user'),
+           (select id from permissions where name = 'protected.delete')
        );

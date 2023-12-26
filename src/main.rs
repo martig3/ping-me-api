@@ -2,25 +2,24 @@ mod auth;
 mod errors;
 mod routes;
 
-use std::env;
 use crate::auth::Backend;
 use crate::routes::routes;
 use axum::body::Bytes;
 use axum::error_handling::HandleErrorLayer;
 use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::{BoxError, Router};
+use std::env;
 
 use axum_login::tower_sessions::cookie::SameSite;
 use axum_login::tower_sessions::{Expiry, SessionManagerLayer};
 use axum_login::AuthManagerLayerBuilder;
 use oauth2::{basic::BasicClient, AuthUrl, ClientId, ClientSecret, RedirectUrl, TokenUrl};
 
-
 use sqlx::SqlitePool;
 
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
-use serde::{Deserialize, Serialize};
 use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
 
@@ -63,7 +62,7 @@ async fn main() {
     dotenvy::dotenv().ok();
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "mert-bucket-api=debug".into()),
+            env::var("RUST_LOG").unwrap_or_else(|_| "mert-bucket-api=debug".into()),
         ))
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -101,7 +100,10 @@ async fn main() {
         ])
         .allow_credentials(true)
         .allow_origin([
-            "http://localhost:5173".parse::<HeaderValue>().unwrap(),
+            env::var("CLIENT_ORIGIN")
+                .unwrap_or("http://localhost:5173".to_string())
+                .parse::<HeaderValue>()
+                .unwrap(),
             "http://localhost:4173".parse::<HeaderValue>().unwrap(),
             "https://discord.com".parse::<HeaderValue>().unwrap(),
         ]);
@@ -129,7 +131,10 @@ async fn main() {
     // This uses `tower-sessions` to establish a layer that will provide the session
     // as a request extension.
     let session_store = SqliteStore::new(pool.clone());
-    session_store.migrate().await.expect("error running migrations for tower_sessions");
+    session_store
+        .migrate()
+        .await
+        .expect("error running migrations for tower_sessions");
     let session_layer = SessionManagerLayer::new(session_store)
         .with_secure(false)
         .with_same_site(SameSite::Lax) // Ensure we send the cookie from the OAuth redirect.
@@ -183,5 +188,5 @@ fn build_discord_oauth_client() -> BasicClient {
         auth_url,
         Some(token_url),
     )
-        .set_redirect_uri(RedirectUrl::new(redirect_url).unwrap())
+    .set_redirect_uri(RedirectUrl::new(redirect_url).unwrap())
 }

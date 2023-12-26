@@ -10,14 +10,11 @@ pub fn admin_routes() -> Router<AppState> {
             get(get_invites).put(put_invite).delete(delete_invite),
         )
         .route_layer(login_required!(Backend))
-        .route_layer(permission_required!(
-            Backend,
-            "restricted.read",
-        ))
+        .route_layer(permission_required!(Backend, "restricted.read",))
 }
 async fn get_invites(state: State<AppState>) -> impl IntoResponse {
     let pool = &state.pool;
-    let invites = sqlx::query_as!(UserInvite, "select * from user_invites order by email ")
+    let invites = sqlx::query_as!(UserInvite, "select * from user_invites order by email")
         .fetch_all(pool)
         .await
         .unwrap();

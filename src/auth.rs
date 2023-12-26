@@ -135,7 +135,11 @@ impl AuthnBackend for Backend {
 
         // Fetch the user and log them in
         log::debug!("Getting user");
-        let user: Option<User> = sqlx::query_as!(User, r#"select u.id, u.name, u.email, u.access_token, u.avatar_url, u.discord_id from users as u where email = $1"#, email)
+        let user: Option<User> = sqlx::query_as!(
+            User,
+            r#"select u.id, u.name, u.email, u.access_token, u.avatar_url, u.discord_id from users as u where email = $1"#,
+            email
+        )
             .fetch_optional(&self.db)
             .await
             .unwrap();
@@ -149,9 +153,9 @@ impl AuthnBackend for Backend {
                         "select * from user_invites where email = $1",
                         email
                     )
-                        .fetch_optional(&self.db)
-                        .await
-                        .unwrap() else {
+                    .fetch_optional(&self.db)
+                    .await
+                    .unwrap() else {
                         return Err(BackendError::NoEmail);
                     };
                 }
@@ -176,18 +180,29 @@ impl AuthnBackend for Backend {
                     .fetch_one(&self.db)
                     .await
                     .unwrap();
+                sqlx::query!(
+                    r#"insert into users_groups (user_id, group_id)
+                            values (
+                                (select id from users where email = $1),
+                                (select id from groups where name = 'user')
+                            )"#,
+                    email
+                )
+                .execute(&self.db)
+                .await
+                .unwrap();
                 if is_owner {
                     sqlx::query!(
-                    r#"insert into users_groups (user_id, group_id)
+                        r#"insert into users_groups (user_id, group_id)
                             values (
                                 (select id from users where email = $1),
                                 (select id from groups where name = 'admin')
                             )"#,
-                    email
-                )
-                        .execute(&self.db)
-                        .await
-                        .unwrap();
+                        email
+                    )
+                    .execute(&self.db)
+                    .await
+                    .unwrap();
                 }
                 user
             }
@@ -225,9 +240,9 @@ impl AuthzBackend for Backend {
             "#,
             user.id
         )
-            .fetch_all(&self.db)
-            .await
-            .map_err(Self::Error::Sqlx)?;
+        .fetch_all(&self.db)
+        .await
+        .map_err(Self::Error::Sqlx)?;
 
         Ok(permissions.into_iter().collect())
     }

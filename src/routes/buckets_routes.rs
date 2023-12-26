@@ -5,10 +5,13 @@ use axum::{
     routing::{delete, get, put},
     Json, Router,
 };
+use axum_login::permission_required;
 use serde::Deserialize;
 use tokio::fs::{metadata, read_dir};
 
+use crate::auth::Backend;
 use crate::{routes::bucket_routes::Metadata, AppState, UPLOADS_DIRECTORY};
+
 #[derive(Debug, Deserialize)]
 struct SearchRequest {
     search: String,
@@ -16,12 +19,15 @@ struct SearchRequest {
 
 pub fn buckets_routes() -> Router<AppState> {
     Router::new()
-        .route("/:name", delete(delete_bucket))
-        // .route_layer(RequireAuth::login_with_role(Role::Admin..))
-        .route("/:name", put(create_bucket))
         .route("/", get(get_buckets))
         .route("/:name/search", get(get_bucket_search))
+        .route_layer(permission_required!(Backend, "protected.read",))
+        .route("/:name", delete(delete_bucket))
+        .route_layer(permission_required!(Backend, "protected.delete",))
+        .route("/:name", put(create_bucket))
+        .route_layer(permission_required!(Backend, "protected.write",))
 }
+
 async fn get_buckets() -> impl IntoResponse {
     let mut dir = read_dir(UPLOADS_DIRECTORY).await.unwrap();
     let mut buckets = Vec::new();
@@ -37,6 +43,7 @@ async fn get_buckets() -> impl IntoResponse {
     }
     (StatusCode::OK, Json(buckets))
 }
+
 async fn create_bucket(Path(name): Path<String>) -> Result<StatusCode, (StatusCode, String)> {
     let path = format!("{}/{}", &UPLOADS_DIRECTORY, name);
     match tokio::fs::create_dir(path).await {
@@ -52,6 +59,7 @@ async fn delete_bucket(Path(name): Path<String>) -> Result<StatusCode, (StatusCo
         Err(error) => Err((StatusCode::INTERNAL_SERVER_ERROR, error.to_string())),
     }
 }
+
 async fn get_bucket_search(
     state: State<AppState>,
     Path(bucket_name): Path<String>,

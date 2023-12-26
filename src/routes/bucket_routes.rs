@@ -6,10 +6,10 @@ use axum::{
     routing::{delete, get, post},
     BoxError, Json, Router,
 };
+use axum_login::login_required;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
 use std::{io::Error, os::unix::prelude::MetadataExt};
-use axum_login::login_required;
 use tokio_util::io::StreamReader;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
@@ -154,9 +154,9 @@ async fn delete_request(
 
 // Save a `Stream` to a file
 async fn stream_to_file<S, E>(path: &str, stream: S) -> Result<(), (StatusCode, String)>
-    where
-        S: Stream<Item=Result<Bytes, E>>,
-        E: Into<BoxError>,
+where
+    S: Stream<Item = Result<Bytes, E>>,
+    E: Into<BoxError>,
 {
     async {
         // Convert the stream into an `AsyncRead`.
@@ -174,8 +174,8 @@ async fn stream_to_file<S, E>(path: &str, stream: S) -> Result<(), (StatusCode, 
 
         Ok::<_, Error>(())
     }
-        .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))
+    .await
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))
 }
 
 async fn serve_file(path: &str, uri: &Uri) -> impl IntoResponse {
