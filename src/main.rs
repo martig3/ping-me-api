@@ -100,7 +100,7 @@ async fn main() {
         ])
         .allow_credentials(true)
         .allow_origin([
-            env::var("CLIENT_ORIGIN")
+            env::var("CLIENT_BASE_URL")
                 .unwrap_or("http://localhost:5173".to_string())
                 .parse::<HeaderValue>()
                 .unwrap(),
@@ -138,7 +138,7 @@ async fn main() {
     let session_layer = SessionManagerLayer::new(session_store)
         .with_secure(true)
         .with_same_site(SameSite::Lax) // Ensure we send the cookie from the OAuth redirect.
-        .with_expiry(Expiry::OnInactivity(time::Duration::days(1)));
+        .with_expiry(Expiry::OnInactivity(time::Duration::hours(1)));
 
     // Auth service.
     //
