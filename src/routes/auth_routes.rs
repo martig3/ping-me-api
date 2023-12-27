@@ -51,7 +51,7 @@ pub async fn login(auth_session: AuthSession, session: Session) -> impl IntoResp
         .expect("Serialization should not fail.");
 
     session
-        .insert(NEXT_URL_KEY, "buckets")
+        .insert(NEXT_URL_KEY, "")
         .await
         .expect("Serialization should not fail.");
 
