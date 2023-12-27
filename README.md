@@ -1,7 +1,7 @@
 # bukkit-api
 Simple filesystem API with authentication. 
 
-Integrates with [bukkit](https://github.com/martig3/bukkit) webapp.
+Made for [bukkit](https://github.com/martig3/bukkit).
 
 ## Setup
 
