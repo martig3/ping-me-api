@@ -136,7 +136,7 @@ async fn main() {
         .await
         .expect("error running migrations for tower_sessions");
     let session_layer = SessionManagerLayer::new(session_store)
-        .with_secure(false)
+        .with_secure(true)
         .with_same_site(SameSite::Lax) // Ensure we send the cookie from the OAuth redirect.
         .with_expiry(Expiry::OnInactivity(time::Duration::days(1)));
 
