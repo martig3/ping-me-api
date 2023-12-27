@@ -1,11 +1,11 @@
-# mert-bucket-api
+# bukkit-api
 Simple filesystem API with authentication. 
 
-Integrates with [mert-bucket](https://github.com/martig3/mert-bucket) webapp.
+Integrates with [bukkit](https://github.com/martig3/bukkit) webapp.
 
 ## Setup
 
-Fill out `.env`
+Fill out `.env.example`
 
 ## Run
 
