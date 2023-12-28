@@ -159,10 +159,12 @@ async fn main() {
     let host = matches!(env::var("ENV").as_deref(), Ok("prd"))
         .then_some("0.0.0.0")
         .unwrap_or("127.0.0.1");
-    let listener = tokio::net::TcpListener::bind(format!("{host}:3000"))
+    let port = env::var("PORT").unwrap_or("3000".to_string());
+    let port = port.parse::<u32>().expect("PORT should be a valid number");
+    let listener = tokio::net::TcpListener::bind(format!("{host}:{port}"))
         .await
         .unwrap();
-    tracing::debug!("listening on {}", listener.local_addr().unwrap());
+    tracing::info!("listening on {}", listener.local_addr().unwrap());
     axum::serve(listener, app.into_make_service())
         .await
         .unwrap();
