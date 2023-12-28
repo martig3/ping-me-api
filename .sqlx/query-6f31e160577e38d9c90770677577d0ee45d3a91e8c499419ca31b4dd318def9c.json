@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "insert into user_invites (email) values ($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "6f31e160577e38d9c90770677577d0ee45d3a91e8c499419ca31b4dd318def9c"
+}

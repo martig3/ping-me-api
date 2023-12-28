@@ -55,14 +55,14 @@ pub struct UserInvite {
     email: String,
 }
 
-const UPLOADS_DIRECTORY: &str = "uploads";
+const UPLOADS_DIRECTORY: &str = "data/uploads";
 
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
-            env::var("RUST_LOG").unwrap_or_else(|_| "mert-bucket-api=debug".into()),
+            env::var("RUST_LOG").unwrap_or_else(|_| "bukkit-api=debug".into()),
         ))
         .with(tracing_subscriber::fmt::layer())
         .init();

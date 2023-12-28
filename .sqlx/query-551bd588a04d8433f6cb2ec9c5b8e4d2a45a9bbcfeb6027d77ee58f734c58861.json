@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            select distinct permissions.name\n            from users\n            join users_groups on users.id = users_groups.user_id\n            join groups_permissions on users_groups.group_id = groups_permissions.group_id\n            join permissions on groups_permissions.permission_id = permissions.id\n            where users.id = ?\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "name",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "551bd588a04d8433f6cb2ec9c5b8e4d2a45a9bbcfeb6027d77ee58f734c58861"
+}

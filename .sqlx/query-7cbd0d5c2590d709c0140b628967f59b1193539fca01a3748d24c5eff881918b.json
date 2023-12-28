@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "delete from user_invites where email = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "7cbd0d5c2590d709c0140b628967f59b1193539fca01a3748d24c5eff881918b"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "delete from users where email = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "cbf180765e70d2287fe57408aa2ef10e0dbbf3431188ca14eaea138c300c9d20"
+}

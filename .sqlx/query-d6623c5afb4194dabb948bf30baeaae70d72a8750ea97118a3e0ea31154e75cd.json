@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "select u.id, u.name, u.email, u.avatar_url, u.discord_id, u.access_token from users as u where email = $1",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Int64"
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "email",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "avatar_url",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "discord_id",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "access_token",
+        "ordinal": 5,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "d6623c5afb4194dabb948bf30baeaae70d72a8750ea97118a3e0ea31154e75cd"
+}

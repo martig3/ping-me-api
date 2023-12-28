@@ -1,2 +1,4 @@
-/target
-/uploads
+target/
+data/
+.env
+compose.yaml

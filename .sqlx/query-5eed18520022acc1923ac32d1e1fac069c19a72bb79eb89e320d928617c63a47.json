@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "select m.id, m.created_by, u.email as created_by_email, m.bucket, m.file_name, m.full_path from metadata as m join users as u on u.id = m.created_by where m.file_name like $1 order by m.file_name",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Int64"
+      },
+      {
+        "name": "created_by",
+        "ordinal": 1,
+        "type_info": "Int64"
+      },
+      {
+        "name": "created_by_email",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "bucket",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "file_name",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "full_path",
+        "ordinal": 5,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "5eed18520022acc1923ac32d1e1fac069c19a72bb79eb89e320d928617c63a47"
+}
