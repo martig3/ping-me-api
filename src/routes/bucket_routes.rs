@@ -1,4 +1,4 @@
-use axum::extract::{Multipart, Query};
+use axum::extract::{DefaultBodyLimit, Multipart, Query};
 use axum::{
     body::{Body, Bytes},
     extract::{Path, State},
@@ -29,7 +29,10 @@ use crate::{AppState, FileInfo, UPLOADS_DIRECTORY};
 pub fn bucket_routes() -> Router<AppState> {
     Router::new()
         .route("/*path", get(get_route))
-        .route("/*path", post(save_request))
+        .route(
+            "/*path",
+            post(save_request).layer(DefaultBodyLimit::max(100_000_000)),
+        )
         .route("/*path", delete(delete_request))
         .route_layer(login_required!(Backend))
 }
@@ -80,20 +83,14 @@ async fn get_dir(path: &String, pool: &Pool<Sqlite>) -> impl IntoResponse {
         let updated_by = folder_meta
             .iter()
             .find(|f| f.file_name == entry.file_name().to_str().unwrap())
-            .unwrap_or(&Metadata {
-                updated_by_email: String::new(),
-                bucket: String::new(),
-                file_name: String::new(),
-                full_path: String::new(),
-            })
-            .updated_by_email
-            .clone();
+            .map(|m| m.updated_by_email.as_str());
+
         file_infos.push(FileInfo {
             name: String::from(entry.file_name().to_str().unwrap()),
             is_directory: metadata.is_dir(),
             size: metadata.size(),
             modified_at: modified_at.to_rfc3339(),
-            updated_by,
+            updated_by: updated_by.unwrap_or("").to_string(),
         });
         file_infos.sort_by(|a, b| b.is_directory.cmp(&a.is_directory));
     }
