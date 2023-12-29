@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "insert or replace into metadata (updated_by, bucket, file_name, full_path) values ($1, $2, $3, $4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "e5cd20a2b408c12685a960c229def80ad78565c54824c6d45a19b2e744af6b6b"
+}

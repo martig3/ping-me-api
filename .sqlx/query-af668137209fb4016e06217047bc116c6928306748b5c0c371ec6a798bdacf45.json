@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "select u.email as updated_by_email, m.bucket, m.file_name, m.full_path from metadata as m join users as u on u.id = m.updated_by where bucket = $1",
+  "describe": {
+    "columns": [
+      {
+        "name": "updated_by_email",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "bucket",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "file_name",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "full_path",
+        "ordinal": 3,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "af668137209fb4016e06217047bc116c6928306748b5c0c371ec6a798bdacf45"
+}
