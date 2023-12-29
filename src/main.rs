@@ -138,7 +138,7 @@ async fn main() {
     let session_layer = SessionManagerLayer::new(session_store)
         .with_secure(true)
         .with_same_site(SameSite::Lax) // Ensure we send the cookie from the OAuth redirect.
-        .with_expiry(Expiry::OnInactivity(time::Duration::hours(1)));
+        .with_expiry(Expiry::OnInactivity(time::Duration::hours(24 * 30)));
 
     // Auth service.
     //
