@@ -1,3 +1,4 @@
+use axum::extract::{Multipart, Query};
 use axum::{
     body::{Body, Bytes},
     extract::{Path, State},
@@ -17,8 +18,9 @@ use tower_http::services::ServeFile;
 use crate::auth::{AuthSession, Backend};
 use chrono::{DateTime, Utc};
 use futures::{Stream, TryStreamExt};
+use tokio::fs::OpenOptions;
 use tokio::{
-    fs::{metadata, read_dir, File},
+    fs::{metadata, read_dir},
     io::{self, BufWriter},
 };
 
@@ -53,9 +55,7 @@ async fn get_route(
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Metadata {
-    pub id: i64,
-    pub created_by: Option<i64>,
-    pub created_by_email: String,
+    pub updated_by_email: String,
     pub bucket: String,
     pub file_name: String,
     pub full_path: String,
@@ -65,9 +65,9 @@ async fn get_dir(path: &String, pool: &Pool<Sqlite>) -> impl IntoResponse {
     let mut dir = read_dir(path).await.unwrap();
     let mut file_infos: Vec<FileInfo> = Vec::new();
     let path_split: Vec<&str> = path.split('/').collect();
-    let bucket = path_split[1];
+    let bucket = path_split[2];
     let folder_meta: Vec<Metadata> =
-        sqlx::query_as!(Metadata, "select m.id, m.created_by, u.email as created_by_email, m.bucket, m.file_name, m.full_path from metadata as m join users as u on u.id = m.created_by where bucket = $1", bucket)
+        sqlx::query_as!(Metadata, "select u.email as updated_by_email, m.bucket, m.file_name, m.full_path from metadata as m join users as u on u.id = m.updated_by where bucket = $1", bucket)
             .fetch_all(pool)
             .await
             .unwrap();
@@ -77,58 +77,97 @@ async fn get_dir(path: &String, pool: &Pool<Sqlite>) -> impl IntoResponse {
         };
         let metadata = entry.metadata().await.unwrap();
         let modified_at: DateTime<Utc> = metadata.modified().unwrap().into();
-        let created_by = folder_meta
+        let updated_by = folder_meta
             .iter()
             .find(|f| f.file_name == entry.file_name().to_str().unwrap())
             .unwrap_or(&Metadata {
-                id: 0,
-                created_by: None,
-                created_by_email: String::new(),
+                updated_by_email: String::new(),
                 bucket: String::new(),
                 file_name: String::new(),
                 full_path: String::new(),
             })
-            .created_by_email
+            .updated_by_email
             .clone();
         file_infos.push(FileInfo {
             name: String::from(entry.file_name().to_str().unwrap()),
             is_directory: metadata.is_dir(),
             size: metadata.size(),
             modified_at: modified_at.to_rfc3339(),
-            created_by,
+            updated_by,
         });
         file_infos.sort_by(|a, b| b.is_directory.cmp(&a.is_directory));
     }
     (StatusCode::OK, Json(file_infos))
 }
 
+#[derive(Deserialize)]
+struct SaveQuery {
+    part: Option<u32>,
+    total_parts: Option<u32>,
+}
 async fn save_request(
     state: State<AppState>,
     AuthSession { user, .. }: AuthSession,
     Path(path): Path<String>,
-    body: Body,
+    query: Query<SaveQuery>,
+    multipart: Option<Multipart>,
 ) -> impl IntoResponse {
     let path = format!("{}/{}", &UPLOADS_DIRECTORY, path);
     if !is_file(&path) {
         return match tokio::fs::create_dir(path).await {
-            Ok(_) => Ok(()),
+            Ok(_) => Ok(StatusCode::CREATED),
             Err(error) => Err((StatusCode::INTERNAL_SERVER_ERROR, error.to_string())),
         };
     }
-    let user = user.unwrap();
-    match stream_to_file(path.as_str(), body.into_data_stream()).await {
-        Ok(result) => {
-            let path_split: Vec<&str> = path.split('/').collect();
-            let path_split = path_split[1..].to_vec();
-            let path = path_split.join("/");
-            let bucket = path_split[0];
-            let file_name = path_split[path_split.len() - 1];
-            sqlx::query!("insert or replace into metadata (created_by, bucket, file_name, full_path) values ($1, $2, $3, $4)", user.id, bucket, file_name, path)
-                .execute(&state.pool).await.unwrap();
-            return Ok(result);
+    let Some(part) = query.part else {
+        return Err((StatusCode::BAD_REQUEST, "missing part field".to_string()));
+    };
+    let Some(total_parts) = query.total_parts else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "missing total_parts field".to_string(),
+        ));
+    };
+    let path_split: Vec<&str> = path.split('/').collect();
+    let bucket = path_split[2];
+    let path = path_split.join("/");
+    let file_name = path_split[path_split.len() - 1];
+    if part == 1 {
+        let exists = tokio::fs::try_exists(&path)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        if exists {
+            tokio::fs::remove_file(&path)
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         }
-        Err(err) => Err(err),
     }
+    let Some(mut multipart) = multipart else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "missing multipart form".to_string(),
+        ));
+    };
+    while let Ok(Some(field)) = multipart.next_field().await {
+        match field.name().unwrap() {
+            "data" => {
+                stream_to_file(&path, field).await?;
+            }
+            _ => (),
+        }
+    }
+    if part == total_parts {
+        let user = user.unwrap();
+        sqlx::query!("insert or replace into metadata (updated_by, bucket, file_name, full_path) values ($1, $2, $3, $4)", user.id, bucket, file_name, path)
+            .execute(&state.pool).await
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "error saving metadata".to_string(),
+                )
+            })?;
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn delete_request(
@@ -164,10 +203,15 @@ where
         let body_reader = StreamReader::new(body_with_io_error);
         futures::pin_mut!(body_reader);
 
-        tracing::debug!("saving: {}", &path);
+        tracing::debug!("writing to: {}", &path);
         // Create the file. `File` implements `AsyncWrite`.
         let path = std::path::Path::new(path);
-        let mut file = BufWriter::new(File::create(path).await?);
+        let file = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(path)
+            .await?;
+        let mut file = BufWriter::new(file);
 
         // Copy the body into the file.
         io::copy(&mut body_reader, &mut file).await?;

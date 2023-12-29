@@ -66,7 +66,7 @@ async fn get_bucket_search(
     Query(query): Query<SearchRequest>,
 ) -> impl IntoResponse {
     let like = format!("%{}%", query.search);
-    let results: Vec<Metadata> = sqlx::query_as!(Metadata, "select m.id, m.created_by, u.email as created_by_email, m.bucket, m.file_name, m.full_path from metadata as m join users as u on u.id = m.created_by where m.file_name like $1 order by m.file_name", like, )
+    let results: Vec<Metadata> = sqlx::query_as!(Metadata, "select u.email as updated_by_email, m.bucket, m.file_name, m.full_path from metadata as m join users as u on u.id = m.updated_by where m.file_name like $1 order by m.file_name", like, )
         .fetch_all(&state.pool)
         .await
         .unwrap();
