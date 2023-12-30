@@ -80,10 +80,16 @@ pub async fn callback(
         Ok(Some(user)) => Ok(user),
         Ok(None) => Err(GenericError),
         Err(err) => match err {
-            Error::Session(_) => Err(GenericError),
+            Error::Session(session_err) => {
+                tracing::debug!("{:?}", session_err);
+                Err(GenericError)
+            },
             Error::Backend(backend_err) => match backend_err {
                 BackendError::NoEmail => Err(BackendError::NoEmail),
-                _ => Err(GenericError),
+                _ => {
+                    tracing::debug!("{:?}", backend_err);
+                    Err(GenericError)
+                },
             },
         },
     };

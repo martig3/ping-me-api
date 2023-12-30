@@ -108,6 +108,7 @@ impl AuthnBackend for Backend {
             return Ok(None);
         };
 
+        tracing::debug!("exchanging auth code for token");
         // Process authorization code, expecting a token response back.
         let token_res = self
             .client
@@ -115,7 +116,7 @@ impl AuthnBackend for Backend {
             .request_async(async_http_client)
             .await
             .map_err(Self::Error::OAuth2)?;
-        // Fetch user data from discord
+        tracing::debug!("fetch user data from discord");
         let client = reqwest::Client::new();
         let user_data = client
             // https://discord.com/developers/docs/resources/user#get-current-user
@@ -127,14 +128,12 @@ impl AuthnBackend for Backend {
             .json::<DiscordUser>()
             .await
             .map_err(Self::Error::Reqwest)?;
-        log::debug!("Getting db connection");
 
         let Some(email) = user_data.email else {
             return Err(BackendError::NoEmail);
         };
 
-        // Fetch the user and log them in
-        log::debug!("Getting user");
+        tracing::debug!("fetch the user and log them in");
         let user: Option<User> = sqlx::query_as!(
             User,
             r#"select u.id, u.name, u.email, u.access_token, u.avatar_url, u.discord_id from users as u where email = $1"#,
@@ -160,6 +159,7 @@ impl AuthnBackend for Backend {
                     };
                 }
 
+                tracing::debug!("user does not exist, inserting into db");
                 let access_token = token_res.access_token().secret().clone();
                 sqlx::query!(
                     "insert into users (name, email, avatar_url, discord_id, access_token) values ($1, $2, $3, $4, $5);",
