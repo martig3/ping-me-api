@@ -74,7 +74,7 @@ impl Backend {
     pub fn authorize_url(&self) -> (Url, CsrfToken) {
         self.client
             .authorize_url(CsrfToken::new_random)
-            .add_scopes(vec![Scope::new("email".to_string())])
+            .add_scopes(vec![Scope::new("email".to_string()), Scope::new("identify".to_string())])
             .url()
     }
 }
