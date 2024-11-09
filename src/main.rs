@@ -33,16 +33,6 @@ use tower_sessions::{PostgresStore};
 
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct FileInfo {
-    name: String,
-    is_directory: bool,
-    size: u64,
-    modified_at: String,
-    updated_by: String,
-}
-
 #[derive(Clone)]
 pub struct AppState {
     pool: PgPool,
@@ -55,8 +45,6 @@ pub struct UserInvite {
     user_id: Option<i64>,
     email: String,
 }
-
-const UPLOADS_DIRECTORY: &str = "data/uploads";
 
 #[tokio::main]
 async fn main() {

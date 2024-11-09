@@ -1,5 +1,5 @@
 use axum::async_trait;
-use axum_login::{AuthUser, AuthnBackend, AuthzBackend, UserId};
+use axum_login::{AuthUser, AuthnBackend, UserId};
 use oauth2::{
     basic::BasicClient, reqwest::async_http_client, url::Url, AuthorizationCode, CsrfToken, Scope,
     TokenResponse,
@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{prelude::FromRow, PgPool, Pool, Postgres};
 use std::{collections::HashSet, env};
 
-use crate::{errors::BackendError, UserInvite};
+use crate::{errors::BackendError};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DiscordUser {
