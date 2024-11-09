@@ -15,11 +15,12 @@ use axum_login::tower_sessions::{Expiry, SessionManagerLayer};
 use axum_login::AuthManagerLayerBuilder;
 use oauth2::{basic::BasicClient, AuthUrl, ClientId, ClientSecret, RedirectUrl, TokenUrl};
 
-use sqlx::SqlitePool;
+use sqlx::postgres::PgPoolOptions;
 
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
+use sqlx::PgPool;
 use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
 
@@ -28,7 +29,7 @@ use tower_http::{
     trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
     LatencyUnit, ServiceBuilderExt,
 };
-use tower_sessions::SqliteStore;
+use tower_sessions::{PostgresStore};
 
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -44,7 +45,7 @@ struct FileInfo {
 
 #[derive(Clone)]
 pub struct AppState {
-    pool: SqlitePool,
+    pool: PgPool,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -66,10 +67,10 @@ async fn main() {
         ))
         .with(tracing_subscriber::fmt::layer())
         .init();
-
-    let pool = SqlitePool::connect(&env::var("DATABASE_URL").expect("Expected DATABASE_URL"))
-        .await
-        .unwrap();
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&env::var("DATABASE_URL").expect("Expected DATABASE_URL")).await
+        .expect("Failed to connect to database");
     sqlx::migrate!()
         .run(&pool)
         .await
@@ -122,7 +123,7 @@ async fn main() {
         .compression()
         .insert_response_header_if_not_present(
             header::CONTENT_TYPE,
-            HeaderValue::from_static("application/octet-stream"),
+            HeaderValue::from_static("application/json"),
         );
 
     let shared_state = AppState { pool: pool.clone() };
@@ -130,7 +131,7 @@ async fn main() {
     //
     // This uses `tower-sessions` to establish a layer that will provide the session
     // as a request extension.
-    let session_store = SqliteStore::new(pool.clone());
+    let session_store = PostgresStore::new(pool.clone());
     session_store
         .migrate()
         .await
@@ -190,5 +191,5 @@ fn build_discord_oauth_client() -> BasicClient {
         auth_url,
         Some(token_url),
     )
-    .set_redirect_uri(RedirectUrl::new(redirect_url).unwrap())
+        .set_redirect_uri(RedirectUrl::new(redirect_url).unwrap())
 }

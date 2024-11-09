@@ -10,7 +10,6 @@ use axum::{response::IntoResponse, routing::get, Router};
 
 use axum_login::tower_sessions::Session;
 use axum_login::{login_required, Error};
-
 use oauth2::CsrfToken;
 use serde::Deserialize;
 use BackendError::GenericError;
@@ -62,9 +61,9 @@ pub async fn callback(
     mut auth_session: AuthSession,
     session: Session,
     Query(AuthzResp {
-        code,
-        state: new_state,
-    }): Query<AuthzResp>,
+              code,
+              state: new_state,
+          }): Query<AuthzResp>,
 ) -> impl IntoResponse {
     let Ok(Some(old_state)) = session.get(CSRF_STATE_KEY).await else {
         return StatusCode::BAD_REQUEST.into_response();
@@ -83,13 +82,13 @@ pub async fn callback(
             Error::Session(session_err) => {
                 tracing::debug!("{:?}", session_err);
                 Err(GenericError)
-            },
+            }
             Error::Backend(backend_err) => match backend_err {
                 BackendError::NoEmail => Err(BackendError::NoEmail),
                 _ => {
                     tracing::debug!("{:?}", backend_err);
                     Err(GenericError)
-                },
+                }
             },
         },
     };
@@ -98,11 +97,11 @@ pub async fn callback(
             BackendError::NoEmail => Redirect::to(
                 format!("{}/errors/no-invite", &env::var("CLIENT_BASE_URL").unwrap()).as_str(),
             )
-            .into_response(),
+                .into_response(),
             _ => Redirect::to(
                 format!("{}/errors/auth", &env::var("CLIENT_BASE_URL").unwrap()).as_str(),
             )
-            .into_response(),
+                .into_response(),
         };
     };
 
@@ -110,10 +109,5 @@ pub async fn callback(
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
-    if let Ok(Some(next)) = session.remove::<String>(NEXT_URL_KEY).await {
-        Redirect::to(format!("{}/{}", env::var("CLIENT_BASE_URL").unwrap(), next).as_str())
-            .into_response()
-    } else {
-        Redirect::to(env::var("CLIENT_BASE_URL").unwrap().as_str()).into_response()
-    }
+    Redirect::to(format!("{}authorized", env::var("CLIENT_BASE_URL").unwrap()).as_str()).into_response()
 }

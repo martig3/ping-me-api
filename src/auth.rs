@@ -5,7 +5,7 @@ use oauth2::{
     TokenResponse,
 };
 use serde::{Deserialize, Serialize};
-use sqlx::{prelude::FromRow, SqlitePool};
+use sqlx::{prelude::FromRow, PgPool, Pool, Postgres};
 use std::{collections::HashSet, env};
 
 use crate::{errors::BackendError, UserInvite};
@@ -62,12 +62,12 @@ pub struct Credentials {
 
 #[derive(Debug, Clone)]
 pub struct Backend {
-    pub db: SqlitePool,
+    pub db: PgPool,
     pub client: BasicClient,
 }
 
 impl Backend {
-    pub fn new(db: SqlitePool, client: BasicClient) -> Self {
+    pub fn new(db: Pool<Postgres>, client: BasicClient) -> Self {
         Self { db, client }
     }
 
@@ -98,7 +98,6 @@ impl AuthnBackend for Backend {
     type Credentials = Credentials;
     type Error = BackendError;
 
-    //noinspection ALL
     async fn authenticate(
         &self,
         creds: Self::Credentials,
@@ -145,20 +144,6 @@ impl AuthnBackend for Backend {
         let user = match user {
             Some(user) => user,
             None => {
-                let is_owner = &email == &env::var("OWNER_EMAIL").expect("Missing OWNER_EMAIL");
-                if !is_owner {
-                    let Some(_invite) = sqlx::query_as!(
-                        UserInvite,
-                        "select * from user_invites where email = $1",
-                        email
-                    )
-                    .fetch_optional(&self.db)
-                    .await
-                    .unwrap() else {
-                        return Err(BackendError::NoEmail);
-                    };
-                }
-
                 tracing::debug!("user does not exist, inserting into db");
                 let access_token = token_res.access_token().secret().clone();
                 sqlx::query!(
@@ -180,30 +165,6 @@ impl AuthnBackend for Backend {
                     .fetch_one(&self.db)
                     .await
                     .unwrap();
-                sqlx::query!(
-                    r#"insert into users_groups (user_id, group_id)
-                            values (
-                                (select id from users where email = $1),
-                                (select id from groups where name = 'user')
-                            )"#,
-                    email
-                )
-                .execute(&self.db)
-                .await
-                .unwrap();
-                if is_owner {
-                    sqlx::query!(
-                        r#"insert into users_groups (user_id, group_id)
-                            values (
-                                (select id from users where email = $1),
-                                (select id from groups where name = 'admin')
-                            )"#,
-                        email
-                    )
-                    .execute(&self.db)
-                    .await
-                    .unwrap();
-                }
                 user
             }
         };
@@ -217,34 +178,6 @@ impl AuthnBackend for Backend {
             .fetch_optional(&self.db)
             .await
             .map_err(Self::Error::Sqlx)?)
-    }
-}
-
-#[async_trait]
-impl AuthzBackend for Backend {
-    type Permission = Permission;
-
-    async fn get_group_permissions(
-        &self,
-        user: &Self::User,
-    ) -> Result<HashSet<Self::Permission>, Self::Error> {
-        let permissions: Vec<Self::Permission> = sqlx::query_as!(
-            Self::Permission,
-            r#"
-            select distinct permissions.name
-            from users
-            join users_groups on users.id = users_groups.user_id
-            join groups_permissions on users_groups.group_id = groups_permissions.group_id
-            join permissions on groups_permissions.permission_id = permissions.id
-            where users.id = ?
-            "#,
-            user.id
-        )
-        .fetch_all(&self.db)
-        .await
-        .map_err(Self::Error::Sqlx)?;
-
-        Ok(permissions.into_iter().collect())
     }
 }
 

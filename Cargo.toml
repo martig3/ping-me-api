@@ -1,5 +1,5 @@
 [package]
-name = "bukkit-api"
+name = "wow-notifier-api"
 version = "0.1.0"
 edition = "2021"
 
@@ -21,7 +21,7 @@ serde_json = "*"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tower = "0.4.13"
 tower-http = { version = "0.5", features = ["full"] }
-tower-sessions = { version = "0.8.2", features = ["sqlx-store", "sqlite-store"] }
+tower-sessions = { version = "0.8.2", features = ["postgres-store", "sqlx-store"] }
 axum-login = { version = "0.11.0" }
 oauth2 = "4.1.0"
 time = "0.3.30"
@@ -31,7 +31,7 @@ parking_lot = { version = "0.12.1", features = [] }
 [dependencies.sqlx]
 version = "0.7"
 default-features = false
-features = ["runtime-tokio-rustls", "sqlite", "macros", "migrate"]
+features = ["runtime-tokio-rustls", "postgres", "macros", "migrate"]
 
 [dependencies.rand]
 version = "0.8.5"

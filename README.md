@@ -1,7 +1,5 @@
-# bukkit-api
-Simple filesystem API with authentication. 
+# wow-notifier-api
 
-Made for [bukkit](https://github.com/martig3/bukkit).
 
 ## Setup
 
