@@ -18,18 +18,16 @@ use oauth2::{basic::BasicClient, AuthUrl, ClientId, ClientSecret, RedirectUrl, T
 use sqlx::postgres::PgPoolOptions;
 
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use std::time::Duration;
 use sqlx::PgPool;
+use std::time::Duration;
 use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
 
 use tower_http::{
-    timeout::TimeoutLayer,
     trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
     LatencyUnit, ServiceBuilderExt,
 };
-use tower_sessions::{PostgresStore};
+use tower_sessions::PostgresStore;
 
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -57,7 +55,8 @@ async fn main() {
         .init();
     let pool = PgPoolOptions::new()
         .max_connections(5)
-        .connect(&env::var("DATABASE_URL").expect("Expected DATABASE_URL")).await
+        .connect(&env::var("DATABASE_URL").expect("Expected DATABASE_URL"))
+        .await
         .expect("Failed to connect to database");
     sqlx::migrate!()
         .run(&pool)
@@ -66,7 +65,6 @@ async fn main() {
 
     let oauth_client = build_discord_oauth_client();
 
-    let sensitive_headers: Arc<[_]> = vec![header::AUTHORIZATION, header::COOKIE].into();
     let cors = CorsLayer::new()
         .allow_headers(vec![
             header::ACCEPT,
@@ -75,6 +73,13 @@ async fn main() {
             header::CONTENT_LANGUAGE,
             header::CONTENT_TYPE,
             header::VARY,
+            header::ORIGIN,
+            header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            header::ACCESS_CONTROL_ALLOW_HEADERS,
+            header::ACCESS_CONTROL_ALLOW_METHODS,
+            header::ACCESS_CONTROL_ALLOW_CREDENTIALS,
+            header::ACCESS_CONTROL_EXPOSE_HEADERS,
+            header::ACCESS_CONTROL_MAX_AGE,
         ])
         .allow_methods(vec![
             Method::GET,
@@ -89,15 +94,10 @@ async fn main() {
         ])
         .allow_credentials(true)
         .allow_origin([
-            env::var("CLIENT_BASE_URL")
-                .unwrap_or("http://localhost:5173".to_string())
-                .parse::<HeaderValue>()
-                .unwrap(),
-            "http://localhost:4173".parse::<HeaderValue>().unwrap(),
+            "http://localhost:1420".parse::<HeaderValue>().unwrap(),
             "https://discord.com".parse::<HeaderValue>().unwrap(),
         ]);
     let middleware = ServiceBuilder::new()
-        .sensitive_request_headers(sensitive_headers.clone())
         .layer(
             TraceLayer::new_for_http()
                 .on_body_chunk(|chunk: &Bytes, latency: Duration, _: &tracing::Span| {
@@ -106,7 +106,6 @@ async fn main() {
                 .make_span_with(DefaultMakeSpan::new().include_headers(true))
                 .on_response(DefaultOnResponse::new().include_headers(true).latency_unit(LatencyUnit::Micros))
         )
-        .layer(TimeoutLayer::new(Duration::from_secs(60 * 60 * 12)))
         .layer(cors)
         .compression()
         .insert_response_header_if_not_present(
@@ -179,5 +178,5 @@ fn build_discord_oauth_client() -> BasicClient {
         auth_url,
         Some(token_url),
     )
-        .set_redirect_uri(RedirectUrl::new(redirect_url).unwrap())
+    .set_redirect_uri(RedirectUrl::new(redirect_url).unwrap())
 }

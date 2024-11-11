@@ -6,9 +6,8 @@ use oauth2::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{prelude::FromRow, PgPool, Pool, Postgres};
-use std::{collections::HashSet, env};
 
-use crate::{errors::BackendError};
+use crate::errors::BackendError;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DiscordUser {
@@ -74,7 +73,10 @@ impl Backend {
     pub fn authorize_url(&self) -> (Url, CsrfToken) {
         self.client
             .authorize_url(CsrfToken::new_random)
-            .add_scopes(vec![Scope::new("email".to_string()), Scope::new("identify".to_string())])
+            .add_scopes(vec![
+                Scope::new("email".to_string()),
+                Scope::new("identify".to_string()),
+            ])
             .url()
     }
 }
@@ -173,11 +175,15 @@ impl AuthnBackend for Backend {
     }
 
     async fn get_user(&self, user_id: &UserId<Self>) -> Result<Option<Self::User>, Self::Error> {
-        Ok(sqlx::query_as("select * from users where id = ?")
-            .bind(user_id)
+        let user: Option<User> = sqlx::query_as!(
+            User,
+            r#"select u.id, u.name, u.email, u.access_token, u.avatar_url, u.discord_id from users as u where id = $1"#,
+           *user_id as i32 
+        )
             .fetch_optional(&self.db)
             .await
-            .map_err(Self::Error::Sqlx)?)
+            .unwrap();
+        Ok(user)
     }
 }
 
