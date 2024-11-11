@@ -6,5 +6,5 @@ CREATE TABLE IF NOT EXISTS users
     email        TEXT               NOT NULL,
     access_token TEXT               NOT NULL,
     avatar_url   TEXT,
-    discord_id   TEXT
+    discord_id   TEXT               NOT NULL
 );

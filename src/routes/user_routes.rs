@@ -22,7 +22,7 @@ async fn user_info_handler(auth_session: AuthSession) -> impl IntoResponse {
         email: user.email,
         discord_avatar: format!(
             "https://cdn.discordapp.com/avatars/{}/{}",
-            user.discord_id.unwrap_or_default(),
+            user.discord_id,
             user.avatar_url.unwrap_or_default()
         ),
     }))

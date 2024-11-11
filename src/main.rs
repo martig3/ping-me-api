@@ -1,4 +1,5 @@
 mod auth;
+mod discord;
 mod errors;
 mod routes;
 
@@ -8,6 +9,7 @@ use axum::body::Bytes;
 use axum::error_handling::HandleErrorLayer;
 use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::{BoxError, Router};
+use discord::DiscordClient;
 use std::env;
 
 use axum_login::tower_sessions::cookie::SameSite;
@@ -18,7 +20,6 @@ use oauth2::{basic::BasicClient, AuthUrl, ClientId, ClientSecret, RedirectUrl, T
 use sqlx::postgres::PgPoolOptions;
 
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
 use std::time::Duration;
 use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
@@ -33,7 +34,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Clone)]
 pub struct AppState {
-    pool: PgPool,
+    client: DiscordClient,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -94,6 +95,7 @@ async fn main() {
         ])
         .allow_credentials(true)
         .allow_origin([
+            "tauri://localhost".parse::<HeaderValue>().unwrap(),
             "http://localhost:1420".parse::<HeaderValue>().unwrap(),
             "https://discord.com".parse::<HeaderValue>().unwrap(),
         ]);
@@ -113,7 +115,10 @@ async fn main() {
             HeaderValue::from_static("application/json"),
         );
 
-    let shared_state = AppState { pool: pool.clone() };
+    let client = DiscordClient::new().expect("Failed to create Discord client");
+    let shared_state = AppState {
+        client: client.clone(),
+    };
     // Session layer.
     //
     // This uses `tower-sessions` to establish a layer that will provide the session

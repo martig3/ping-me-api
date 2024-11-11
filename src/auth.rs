@@ -24,7 +24,7 @@ pub struct User {
     pub name: String,
     pub email: String,
     pub avatar_url: Option<String>,
-    pub discord_id: Option<String>,
+    pub discord_id: String,
     pub access_token: String,
 }
 
@@ -35,6 +35,7 @@ impl std::fmt::Debug for User {
         f.debug_struct("User")
             .field("id", &self.id)
             .field("username", &self.email)
+            .field("discord_id", &self.discord_id)
             .field("access_token", &"[redacted]")
             .finish()
     }

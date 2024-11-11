@@ -6,12 +6,12 @@ use serde_json::json;
 #[derive(Debug, thiserror::Error)]
 pub enum BackendError {
     #[error(transparent)]
-    Sqlx(sqlx::Error),
+    SerdeJSON(#[from] serde_json::Error),
     #[error(transparent)]
-    Reqwest(reqwest::Error),
+    Reqwest(#[from] reqwest::Error),
     #[error(transparent)]
     OAuth2(BasicRequestTokenError<AsyncHttpClientError>),
-    #[error("User email has no invite")]
+    #[error("User has no email")]
     NoEmail,
     #[error("Error occurred while authenticating user")]
     GenericError,
